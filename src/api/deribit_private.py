@@ -128,6 +128,12 @@ class DeribitPrivateAPI:
         response.raise_for_status()
         return response.json()["result"]
     
+    async def edit(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Edit existing order"""
+        response = await self.client.get("/private/edit", params=params)
+        response.raise_for_status()
+        return response.json()["result"]
+
     async def cancel(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Cancel order
@@ -171,6 +177,12 @@ class DeribitPrivateAPI:
         response.raise_for_status()
         return response.json()["result"]
     
+    async def get_open_orders_by_instrument(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get open orders for specific instrument"""
+        response = await self.client.get("/private/get_open_orders_by_instrument", params=params)
+        response.raise_for_status()
+        return response.json().get("result", [])
+
     async def get_order_history(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Get order history

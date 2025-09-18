@@ -6,7 +6,7 @@ Handles sending notifications to WeChat groups via webhook.
 
 import asyncio
 import json
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TypedDict
 from datetime import datetime
 
 import httpx
@@ -14,6 +14,28 @@ import httpx
 from config import ConfigLoader, settings
 from models.config_types import WeChatBotConfig
 from models.trading_types import OptionTradingResult
+
+
+class OrderNotificationPayload(TypedDict, total=False):
+    """Typed payload for order notifications"""
+
+    success: bool
+    instrument_name: str
+    direction: str
+    quantity: float
+    requested_price: Optional[float]
+    executed_quantity: Optional[float]
+    executed_price: Optional[float]
+    order_state: Optional[str]
+    order_id: Optional[str]
+    strategy: Optional[str]
+    attempt: Optional[int]
+    order_type: Optional[str]
+    best_bid_price: Optional[float]
+    best_ask_price: Optional[float]
+    tick_size: Optional[float]
+    spread_ratio: Optional[float]
+    message: Optional[str]
 
 
 class WeChatNotificationService:
@@ -27,7 +49,23 @@ class WeChatNotificationService:
         if self._config_loader is None:
             self._config_loader = ConfigLoader.get_instance()
         return self._config_loader
-    
+
+    def _get_account_config(self, account_name: str) -> Optional[WeChatBotConfig]:
+        """Helper to fetch WeChat bot configuration for a specific account"""
+        return self._get_config_loader().get_account_wechat_bot_config(account_name)
+
+    def is_available(self, account_name: Optional[str] = None) -> bool:
+        """Check whether WeChat notifications are configured globally or for an account"""
+        try:
+            if account_name:
+                return self._get_account_config(account_name) is not None
+
+            configs = self._get_config_loader().get_all_wechat_bot_configs()
+            return len(configs) > 0
+        except Exception as error:
+            print(f'⚠️ Failed to check WeChat bot availability: {error}')
+            return False
+
     async def send_trading_notification(
         self,
         account_name: str,
@@ -46,9 +84,8 @@ class WeChatNotificationService:
             True if notification sent successfully
         """
         try:
-            config_loader = self._get_config_loader()
-            wechat_config = config_loader.get_account_wechat_bot_config(account_name)
-            
+            wechat_config = self._get_account_config(account_name)
+
             if not wechat_config:
                 print(f"⚠️ No WeChat bot configuration found for account: {account_name}")
                 return False
@@ -123,6 +160,121 @@ class WeChatNotificationService:
             print(f"❌ Error sending system notifications: {error}")
             return {}
     
+    async def send_custom_markdown(
+        self,
+        account_name: str,
+        content: str
+    ) -> bool:
+        """Send a preformatted markdown message to specified account"""
+        try:
+            wechat_config = self._get_account_config(account_name)
+
+            if not wechat_config:
+                print(f'[WeChat] No configuration found for account: {account_name}')
+                return False
+
+            message = {
+                "msgtype": "markdown",
+                "markdown": {
+                    "content": content
+                }
+            }
+
+            success = await self._send_message(wechat_config, message)
+            if not success:
+                print(f'[WeChat] Failed to send custom markdown to account: {account_name}')
+            return success
+
+        except Exception as error:
+            print(f'[WeChat] Error sending custom markdown: {error}')
+            return False
+
+    async def send_order_notification(
+        self,
+        account_name: str,
+        payload: OrderNotificationPayload
+    ) -> bool:
+        """Send detailed order notification for Deribit trades"""
+        try:
+            wechat_config = self._get_account_config(account_name)
+            if not wechat_config:
+                print(f'[WeChat] No configuration found for account: {account_name}')
+                return False
+
+            success_icon = '✅' if payload.get('success') else '❌'
+            direction_text = '买入' if payload.get('direction') == 'buy' else '卖出'
+            order_state = payload.get('order_state') or 'unknown'
+
+            content_lines = [
+                f"{success_icon} **期权下单通知**",
+                '',
+                f"- 合约: {payload.get('instrument_name', '未知')}",
+                f"- 方向: {direction_text}",
+                f"- 委托数量: {payload.get('quantity', 0):.4f}"
+            ]
+
+            requested_price = payload.get('requested_price')
+            if requested_price is not None:
+                content_lines.append(f"- 委托价格: {requested_price:.4f}")
+
+            executed_price = payload.get('executed_price')
+            if executed_price is not None:
+                content_lines.append(f"- 成交价格: {executed_price:.4f}")
+
+            executed_quantity = payload.get('executed_quantity')
+            if executed_quantity is not None:
+                content_lines.append(f"- 成交数量: {executed_quantity:.4f}")
+
+            content_lines.append(f"- 订单状态: {order_state}")
+
+            if payload.get('order_id'):
+                content_lines.append(f"- 订单ID: {payload['order_id']}")
+
+            if payload.get('strategy'):
+                content_lines.append(f"- 执行策略: {payload['strategy']}")
+
+            if payload.get('order_type'):
+                content_lines.append(f"- 订单类型: {payload['order_type']}")
+
+            if payload.get('attempt'):
+                content_lines.append(f"- 尝试次数: {payload['attempt']}")
+
+            best_bid = payload.get('best_bid_price')
+            best_ask = payload.get('best_ask_price')
+            if best_bid is not None and best_ask is not None:
+                content_lines.append(f"- 盘口价: Bid {best_bid:.4f} / Ask {best_ask:.4f}")
+
+            tick_size = payload.get('tick_size')
+            if tick_size is not None:
+                content_lines.append(f"- Tick Size: {tick_size}")
+
+            spread_ratio = payload.get('spread_ratio')
+            if spread_ratio is not None:
+                content_lines.append(f"- 价差: {spread_ratio * 100:.2f}%")
+
+            if payload.get('message'):
+                content_lines.append('')
+                content_lines.append(f"备注: {payload['message']}")
+
+            content_lines.append('')
+            content_lines.append(f"- 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+            message = {
+                "msgtype": "markdown",
+                "markdown": {
+                    "content": '\n'.join(content_lines)
+                }
+            }
+
+            success = await self._send_message(wechat_config, message)
+            if not success:
+                print(f'[WeChat] Failed to send order notification for account: {account_name}')
+            return success
+
+        except Exception as error:
+            print(f'[WeChat] Error sending order notification: {error}')
+            return False
+
     def _create_trading_message(
         self,
         account_name: str,

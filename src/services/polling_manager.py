@@ -189,6 +189,7 @@ class PollingManager:
 
             try:
                 # Get positions
+                # todo: 这里应该是获取所有期权仓位, 不应该只是btc
                 positions = await client.get_positions(account_name, "BTC")
                 summary = await client.get_account_summary(account_name, "BTC")
 

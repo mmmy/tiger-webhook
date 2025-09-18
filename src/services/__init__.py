@@ -16,6 +16,7 @@ from .mock_deribit_client import MockDeribitClient
 from .option_service import OptionService
 from .option_trading_service import OptionTradingService
 from .wechat_notification import wechat_notification_service
+from .progressive_limit_strategy import ProgressiveLimitParams, execute_progressive_limit_strategy
 from .polling_manager import polling_manager
 from .background_tasks import background_task_manager
 
@@ -30,6 +31,8 @@ __all__ = [
     "MockDeribitClient",
     "OptionService",
     "OptionTradingService",
+    "ProgressiveLimitParams",
+    "execute_progressive_limit_strategy",
     "wechat_notification_service",
     "polling_manager",
     "background_task_manager",

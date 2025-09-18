@@ -5,6 +5,7 @@ Handles TradingView webhook signals and executes option trades.
 """
 
 from typing import Optional, Dict, Any
+import asyncio
 import time
 
 from config import ConfigLoader, settings
@@ -20,7 +21,8 @@ from .auth_service import AuthenticationService
 from .deribit_client import DeribitClient
 from .mock_deribit_client import MockDeribitClient
 from .option_service import OptionService
-from .wechat_notification import wechat_notification_service
+from .wechat_notification import wechat_notification_service, OrderNotificationPayload
+from .progressive_limit_strategy import ProgressiveLimitParams, execute_progressive_limit_strategy
 from utils.logging_config import get_global_logger
 
 logger = get_global_logger()
@@ -514,40 +516,32 @@ class OptionTradingService:
     ) -> OptionTradingResult:
         """Place a real option order on Deribit"""
         try:
-            print(f"📋 Placing real order for instrument: {instrument_name}")
-            print(f"📊 Direction: {direction}, Quantity: {quantity}")
+            print(f"?? Placing real order for instrument: {instrument_name}")
+            print(f"?? Direction: {direction}, Quantity: {quantity}")
 
-            # Get Deribit client
             from services.deribit_client import DeribitClient
             deribit_client = DeribitClient()
 
             try:
-                # Calculate order parameters
                 entry_price = (delta_result.details.best_bid_price + delta_result.details.best_ask_price) / 2
-                print(f"📊 Entry price calculated: {entry_price} "
-                      f"(bid: {delta_result.details.best_bid_price}, ask: {delta_result.details.best_ask_price})")
+                print(
+                    f"?? Entry price calculated: {entry_price} "
+                    f"(bid: {delta_result.details.best_bid_price}, ask: {delta_result.details.best_ask_price})"
+                )
 
-                # Calculate final quantity and price based on qty_type
                 final_quantity, final_price = self._calculate_order_parameters(
                     params, delta_result, entry_price
                 )
+                print(f"?? Final parameters: quantity={final_quantity}, price={final_price}")
 
-                print(f"🔧 Final parameters: quantity={final_quantity}, price={final_price}")
-
-                # Check spread and decide strategy using configured thresholds
                 from config.settings import settings
                 from utils.spread_calculation import is_spread_reasonable, format_spread_ratio_as_percentage
 
                 spread_ratio = delta_result.spread_ratio
-
-                # Use configured spread thresholds
                 spread_ratio_threshold = settings.spread_ratio_threshold
                 spread_tick_threshold = settings.spread_tick_multiple_threshold
-
-                # Get instrument tick size for comprehensive spread analysis
                 tick_size = getattr(delta_result.instrument, 'tick_size', 0.0001)
 
-                # Use comprehensive spread analysis
                 is_reasonable = is_spread_reasonable(
                     delta_result.details.best_bid_price,
                     delta_result.details.best_ask_price,
@@ -559,31 +553,62 @@ class OptionTradingService:
                 spread_percentage = format_spread_ratio_as_percentage(spread_ratio)
                 tick_multiple = (delta_result.details.best_ask_price - delta_result.details.best_bid_price) / tick_size
 
-                print(f"📊 Spread analysis: ratio={spread_percentage}, tick_multiple={tick_multiple:.1f}, reasonable={is_reasonable}")
-                print(f"📊 Thresholds: ratio_threshold={spread_ratio_threshold*100:.1f}%, tick_threshold={spread_tick_threshold}")
+                print(
+                    f"?? Spread analysis: ratio={spread_percentage}, "
+                    f"tick_multiple={tick_multiple:.1f}, reasonable={is_reasonable}"
+                )
+                print(
+                    f"?? Thresholds: ratio_threshold={spread_ratio_threshold * 100:.1f}%, "
+                    f"tick_threshold={spread_tick_threshold}"
+                )
+
+                strategy = 'progressive' if is_reasonable else 'direct'
 
                 if not is_reasonable:
-                    print(f"📈 Wide spread detected, using direct order")
+                    print("?? Wide spread detected, using direct order")
                     order_result = await self._place_direct_order(
-                        deribit_client, instrument_name, direction,
-                        final_quantity, final_price, account_name
+                        deribit_client,
+                        instrument_name,
+                        direction,
+                        final_quantity,
+                        final_price,
+                        account_name
                     )
                 else:
-                    print(f"📈 Reasonable spread, using progressive strategy")
+                    print("?? Reasonable spread, using progressive strategy")
                     order_result = await self._place_progressive_order(
-                        deribit_client, instrument_name, direction,
-                        final_quantity, delta_result, account_name
+                        deribit_client,
+                        instrument_name,
+                        direction,
+                        final_quantity,
+                        final_price,
+                        delta_result,
+                        account_name
                     )
 
                 if order_result:
-                    # Create Delta record in database
+                    await self._send_order_notification(
+                        account_name=account_name,
+                        instrument_name=instrument_name,
+                        direction=direction,
+                        requested_quantity=final_quantity,
+                        requested_price=final_price,
+                        delta_result=delta_result,
+                        strategy=strategy,
+                        order_result=order_result,
+                        message=None
+                    )
+
                     try:
-                        await self._create_delta_record(params, payload,
-                                                      order_result.get('order_id', ''),
-                                                      instrument_name)
-                        print(f"✅ Delta record created for {instrument_name}")
+                        await self._create_delta_record(
+                            params,
+                            payload,
+                            order_result.get('order_id', ''),
+                            instrument_name
+                        )
+                        print(f"? Delta record created for {instrument_name}")
                     except Exception as delta_error:
-                        print(f"⚠️ Failed to create Delta record: {type(delta_error).__name__}: {delta_error}")
+                        print(f"?? Failed to create Delta record: {type(delta_error).__name__}: {delta_error}")
 
                     return OptionTradingResult(
                         success=True,
@@ -595,17 +620,40 @@ class OptionTradingService:
                         order_label=f"tv_{payload.tv_id}" if payload.tv_id else None,
                         final_order_state=order_result.get('order_state', 'open')
                     )
-                else:
-                    return OptionTradingResult(
-                        success=False,
-                        message="Failed to place order - no response from exchange"
-                    )
+
+                await self._send_order_notification(
+                    account_name=account_name,
+                    instrument_name=instrument_name,
+                    direction=direction,
+                    requested_quantity=final_quantity,
+                    requested_price=final_price,
+                    delta_result=delta_result,
+                    strategy=strategy,
+                    order_result=None,
+                    message="Failed to place order - no response from exchange"
+                )
+
+                return OptionTradingResult(
+                    success=False,
+                    message="Failed to place order - no response from exchange"
+                )
 
             finally:
                 await deribit_client.close()
 
         except Exception as error:
-            print(f"❌ Failed to place real option order: {error}")
+            print(f"? Failed to place real option order: {error}")
+            await self._send_order_notification(
+                account_name=account_name,
+                instrument_name=instrument_name,
+                direction=direction,
+                requested_quantity=quantity,
+                requested_price=params.price or 0.0,
+                delta_result=delta_result,
+                strategy='direct',
+                order_result=None,
+                message=str(error)
+            )
             return OptionTradingResult(
                 success=False,
                 message=f"Failed to place {direction} order",
@@ -689,7 +737,8 @@ class OptionTradingService:
                     'order_id': response.order.get('order_id'),
                     'order_state': response.order.get('order_state'),
                     'filled_amount': response.order.get('filled_amount', 0),
-                    'average_price': response.order.get('average_price', price)
+                    'average_price': response.order.get('average_price', price),
+                    'order_type': 'limit'
                 }
             return None
 
@@ -703,43 +752,53 @@ class OptionTradingService:
         instrument_name: str,
         direction: str,
         quantity: float,
+        initial_price: float,
         delta_result,
         account_name: str
     ) -> Optional[Dict[str, Any]]:
-        """Place order using progressive pricing strategy"""
+        """Place initial limit order then run progressive limit adjustments"""
         try:
-            # Calculate progressive price
-            r = 0.2  # 20% into the spread
-            spread = delta_result.details.best_ask_price - delta_result.details.best_bid_price
+            tick_size = getattr(delta_result.instrument, 'tick_size', 0.0001)
 
-            if direction == 'buy':
-                progressive_price = delta_result.details.best_bid_price + spread * r
-            else:
-                progressive_price = delta_result.details.best_ask_price - spread * r
-
-            # Apply tick size correction using Decimal for precision
-            from decimal import Decimal, ROUND_HALF_UP
-            tick_size = delta_result.instrument.tick_size or 0.0001
-
-            # Use Decimal for precise calculation
-            price_decimal = Decimal(str(progressive_price))
-            tick_decimal = Decimal(str(tick_size))
-
-            # Round to nearest tick
-            ticks = (price_decimal / tick_decimal).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
-            progressive_price = float(ticks * tick_decimal)
-
-            print(f"📈 Progressive price: {progressive_price} (spread: {spread}, r: {r})")
-
-            # Place the order
-            return await self._place_direct_order(
-                deribit_client, instrument_name, direction,
-                quantity, progressive_price, account_name
+            initial_order = await self._place_direct_order(
+                deribit_client,
+                instrument_name,
+                direction,
+                quantity,
+                initial_price,
+                account_name
             )
 
+            if not initial_order or not initial_order.get('order_id'):
+                return initial_order
+
+            progressive_params = ProgressiveLimitParams(
+                order_id=initial_order['order_id'],
+                instrument_name=instrument_name,
+                direction=direction,
+                quantity=quantity,
+                initial_price=initial_price,
+                account_name=account_name,
+                tick_size=tick_size,
+                max_steps=getattr(settings, 'progressive_limit_max_steps', 3),
+                step_timeout=float(getattr(settings, 'progressive_limit_step_timeout', 8.0)),
+            )
+
+            progressive_result = await execute_progressive_limit_strategy(
+                progressive_params,
+                deribit_client,
+            )
+
+            order_result = progressive_result.to_order_result()
+            if progressive_result.position_info is not None:
+                order_result['position_info'] = progressive_result.position_info
+
+            return order_result
+
         except Exception as error:
-            print(f"❌ Failed to place progressive order: {error}")
+            print(f"[Progressive] Error executing strategy: {error}")
             return None
+
 
     async def _execute_other_trade_types(
         self,
@@ -929,3 +988,227 @@ class OptionTradingService:
                 message=f"Failed to execute {params.action}",
                 error=str(error)
             )
+    def _extract_result_attr(self, result: Any, field: str) -> Optional[Any]:
+        """Safely extract field from OptionTradingResult-like objects or dicts."""
+        if result is None:
+            return None
+        if isinstance(result, dict):
+            return result.get(field)
+        return getattr(result, field, None)
+
+    def _get_action_text(self, action: Optional[str]) -> str:
+        mapping = {
+            'open_long': 'open long',
+            'open_short': 'open short',
+            'close_long': 'close long',
+            'close_short': 'close short',
+            'reduce_long': 'reduce long',
+            'reduce_short': 'reduce short',
+            'stop_long': 'stop long',
+            'stop_short': 'stop short'
+        }
+        return mapping.get(action or '', action or 'unknown')
+
+    def _get_direction_text(self, direction: Optional[str]) -> str:
+        if direction == 'buy':
+            return 'buy'
+        if direction == 'sell':
+            return 'sell'
+        return direction or 'unknown'
+
+    async def _send_order_notification(
+        self,
+        account_name: str,
+        instrument_name: str,
+        direction: str,
+        requested_quantity: float,
+        requested_price: Optional[float],
+        delta_result,
+        strategy: str,
+        order_result: Optional[Dict[str, Any]],
+        message: Optional[str]
+    ) -> None:
+        if not wechat_notification_service.is_available(account_name):
+            return
+
+        payload: OrderNotificationPayload = {
+            'success': False,
+            'instrument_name': instrument_name,
+            'direction': direction,
+            'quantity': requested_quantity,
+            'strategy': strategy,
+        }
+
+        if requested_price is not None:
+            payload['requested_price'] = requested_price
+
+        details = getattr(delta_result, 'details', None)
+        instrument = getattr(delta_result, 'instrument', None)
+        if details is not None:
+            best_bid = getattr(details, 'best_bid_price', None)
+            best_ask = getattr(details, 'best_ask_price', None)
+            if best_bid is not None:
+                payload['best_bid_price'] = best_bid
+            if best_ask is not None:
+                payload['best_ask_price'] = best_ask
+        if instrument is not None:
+            tick_size = getattr(instrument, 'tick_size', None)
+            if tick_size is not None:
+                payload['tick_size'] = tick_size
+        spread_ratio = getattr(delta_result, 'spread_ratio', None)
+        if spread_ratio is not None:
+            payload['spread_ratio'] = spread_ratio
+
+        if order_result:
+            payload['order_id'] = order_result.get('order_id')
+            payload['order_state'] = order_result.get('order_state')
+            payload['executed_quantity'] = order_result.get('filled_amount')
+            payload['executed_price'] = order_result.get('average_price')
+            order_type = order_result.get('order_type')
+            if order_type:
+                payload['order_type'] = order_type
+            attempt = order_result.get('attempt')
+            if attempt:
+                payload['attempt'] = attempt
+            payload['success'] = order_result.get('order_state') not in {None, 'rejected'}
+        else:
+            payload['order_state'] = 'failed'
+            payload['success'] = False
+
+        if message:
+            payload['message'] = message
+
+        await wechat_notification_service.send_order_notification(account_name, payload)
+
+    async def _send_position_adjustment_notification(
+        self,
+        account_name: str,
+        tv_id: int,
+        status: str,
+        details: Dict[str, Any]
+    ) -> None:
+        if not wechat_notification_service.is_available(account_name):
+            return
+
+        status_titles = {
+            'START': 'Position adjustment started',
+            'SUCCESS': 'Position adjustment completed',
+            'FAILED': 'Position adjustment failed'
+        }
+        title = status_titles.get(status, 'Position adjustment update')
+
+        lines = [
+            f"**{title}**",
+            '',
+            f"- account: {account_name}",
+            f"- tv id: {tv_id}"
+        ]
+
+        symbol = details.get('symbol')
+        if symbol:
+            lines.append(f"- symbol: {symbol}")
+
+        lines.append(f"- action: {self._get_action_text(details.get('action'))}")
+        lines.append(f"- direction: {self._get_direction_text(details.get('direction'))}")
+
+        result = details.get('result')
+        if result is not None:
+            success_flag = self._extract_result_attr(result, 'success')
+            if success_flag is not None:
+                lines.append(f"- result: {'success' if success_flag else 'failed'}")
+            result_msg = self._extract_result_attr(result, 'message')
+            if result_msg:
+                lines.append(f"- note: {result_msg}")
+            executed_quantity = self._extract_result_attr(result, 'executed_quantity')
+            if executed_quantity:
+                lines.append(f"- executed quantity: {executed_quantity}")
+
+        await wechat_notification_service.send_custom_markdown(account_name, '\n'.join(lines))
+
+    async def _send_profit_close_notification(
+        self,
+        account_name: str,
+        tv_id: int,
+        status: str,
+        details: Dict[str, Any]
+    ) -> None:
+        if not wechat_notification_service.is_available(account_name):
+            return
+
+        status_titles = {
+            'START': 'Profit close started',
+            'SUCCESS': 'Profit close finished',
+            'FAILED': 'Profit close failed'
+        }
+        title = status_titles.get(status, 'Profit close update')
+
+        lines = [
+            f"**{title}**",
+            '',
+            f"- account: {account_name}",
+            f"- tv id: {tv_id}",
+            f"- symbol: {details.get('symbol', 'n/a')}",
+            f"- action: {self._get_action_text(details.get('action'))}",
+            f"- direction: {self._get_direction_text(details.get('direction'))}"
+        ]
+
+        close_ratio = details.get('close_ratio')
+        if close_ratio is not None:
+            lines.append(f"- close ratio: {close_ratio * 100:.1f}%")
+
+        instruments = details.get('instrumentNames') or details.get('instrument_names')
+        if instruments:
+            if isinstance(instruments, list):
+                instrument_list = ', '.join(str(item) for item in instruments)
+            else:
+                instrument_list = str(instruments)
+            lines.append(f"- instruments: {instrument_list}")
+
+        result = details.get('result')
+        if result is not None:
+            result_msg = self._extract_result_attr(result, 'message')
+            if result_msg:
+                lines.append(f"- note: {result_msg}")
+            executed_quantity = self._extract_result_attr(result, 'executed_quantity')
+            if executed_quantity:
+                lines.append(f"- executed quantity: {executed_quantity}")
+
+        await wechat_notification_service.send_custom_markdown(account_name, '\n'.join(lines))
+
+    async def _send_stop_loss_notification(
+        self,
+        account_name: str,
+        tv_id: int,
+        status: str,
+        details: Dict[str, Any]
+    ) -> None:
+        if not wechat_notification_service.is_available(account_name):
+            return
+
+        status_titles = {
+            'START': 'Stop loss started',
+            'SUCCESS': 'Stop loss completed',
+            'FAILED': 'Stop loss failed'
+        }
+        title = status_titles.get(status, 'Stop loss update')
+
+        lines = [
+            f"**{title}**",
+            '',
+            f"- account: {account_name}",
+            f"- tv id: {tv_id}",
+            f"- symbol: {details.get('symbol', 'n/a')}",
+            f"- action: {self._get_action_text(details.get('action'))}",
+            f"- direction: {self._get_direction_text(details.get('direction'))}"
+        ]
+
+        result = details.get('result')
+        if result is not None:
+            result_msg = self._extract_result_attr(result, 'message')
+            if result_msg:
+                lines.append(f"- note: {result_msg}")
+            executed_quantity = self._extract_result_attr(result, 'executed_quantity')
+            if executed_quantity:
+                lines.append(f"- executed quantity: {executed_quantity}")
+
+        await wechat_notification_service.send_custom_markdown(account_name, '\n'.join(lines))

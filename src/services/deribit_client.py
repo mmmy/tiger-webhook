@@ -291,6 +291,66 @@ class DeribitClient:
             print(f"Failed to place sell order: {error}")
             return None
 
+    async def edit_order(
+        self,
+        account_name: str,
+        order_id: str,
+        amount: float,
+        price: Optional[float] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Edit existing order parameters"""
+        try:
+            await self._ensure_private_api(account_name)
+            if not self.private_api:
+                raise Exception("Private API not initialized")
+
+            params = {
+                "order_id": order_id,
+                "amount": amount
+            }
+            if price is not None:
+                params["price"] = price
+
+            return await self.private_api.edit(params)
+
+        except Exception as error:
+            print(f"Failed to edit order {order_id}: {error}")
+            return None
+
+    async def get_order_state(
+        self,
+        account_name: str,
+        order_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get order state for specific order"""
+        try:
+            await self._ensure_private_api(account_name)
+            if not self.private_api:
+                raise Exception("Private API not initialized")
+
+            return await self.private_api.get_order_state({"order_id": order_id})
+
+        except Exception as error:
+            print(f"Failed to get order state for {order_id}: {error}")
+            return None
+
+    async def get_open_orders_by_instrument(
+        self,
+        account_name: str,
+        instrument_name: str
+    ) -> List[Dict[str, Any]]:
+        """Get open orders for a specific instrument"""
+        try:
+            await self._ensure_private_api(account_name)
+            if not self.private_api:
+                raise Exception("Private API not initialized")
+
+            return await self.private_api.get_open_orders_by_instrument({"instrument_name": instrument_name})
+
+        except Exception as error:
+            print(f"Failed to get open orders for instrument {instrument_name}: {error}")
+            return []
+
     async def get_instrument_by_delta(
         self,
         currency: str,
