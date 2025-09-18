@@ -13,6 +13,13 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_PATH = PROJECT_ROOT / 'src'
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(SRC_PATH))
+
 from deribit_webhook.app import create_app
 from deribit_webhook.config.config_loader import ConfigLoader
 from deribit_webhook.database.delta_manager import DeltaManager
@@ -289,3 +296,4 @@ def pytest_collection_modifyitems(config, items):
         # Add slow marker to tests that might be slow
         if any(keyword in item.name.lower() for keyword in ["polling", "background", "timeout"]):
             item.add_marker(pytest.mark.slow)
+

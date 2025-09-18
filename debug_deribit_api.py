@@ -11,8 +11,8 @@ import os
 # 添加 src 目录到路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from services.deribit_client import DeribitClient
-from services.auth_service import AuthenticationService
+from deribit_webhook.services.deribit_client import DeribitClient
+from deribit_webhook.services.auth_service import AuthenticationService
 
 async def debug_deribit_api():
     """调试 Deribit API 数据结构"""
@@ -71,7 +71,7 @@ async def debug_deribit_api():
         if instruments_response:
             first_instrument = instruments_response[0]
             try:
-                from models.deribit_types import DeribitOptionInstrument
+                from deribit_webhook.models.deribit_types import DeribitOptionInstrument
                 
                 # 尝试直接解析
                 parsed = DeribitOptionInstrument(**first_instrument)

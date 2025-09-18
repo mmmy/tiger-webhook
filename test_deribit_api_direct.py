@@ -19,8 +19,8 @@ load_dotenv('../.env.test')
 # 添加 src 目录到路径
 sys.path.insert(0, '.')
 
-from services.auth_service import AuthenticationService
-from config.settings import settings
+from deribit_webhook.services.auth_service import AuthenticationService
+from deribit_webhook.config.settings import settings
 
 async def test_deribit_api_direct():
     """直接测试 Deribit API"""

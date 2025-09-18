@@ -16,7 +16,7 @@ os.environ['LOG_FORMAT'] = 'text'
 os.environ['LOG_FILE'] = './logs/text_format.log'
 os.environ['LOG_LEVEL'] = 'DEBUG'
 
-from utils.logging_config import init_logging, get_global_logger
+from deribit_webhook.utils.logging_config import init_logging, get_global_logger
 
 
 def test_text_format_logging():

@@ -14,7 +14,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from utils.logging_config import init_logging, get_global_logger, debug, info, warning, error, critical
+from deribit_webhook.utils.logging_config import init_logging, get_global_logger, debug, info, warning, error, critical
 
 
 async def test_logging_precision():

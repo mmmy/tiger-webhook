@@ -10,8 +10,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from config.settings import settings
-from services.polling_manager import polling_manager
+from deribit_webhook.config.settings import settings
+from deribit_webhook.services.polling_manager import polling_manager
 
 
 def test_position_polling_config():
@@ -37,7 +37,7 @@ def test_position_polling_config():
     os.environ["AUTO_START_POLLING"] = "false"
     
     # Reload settings
-    from config.settings import Settings
+    from deribit_webhook.config.settings import Settings
     test_settings = Settings()
     
     print(f"   POSITION_POLLING_INTERVAL_MINUTES=20 -> {test_settings.position_polling_interval_minutes}")

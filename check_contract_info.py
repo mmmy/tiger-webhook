@@ -10,8 +10,8 @@ import os
 # 添加 src 目录到路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from services.deribit_client import DeribitClient
-from services.auth_service import AuthenticationService
+from deribit_webhook.services.deribit_client import DeribitClient
+from deribit_webhook.services.auth_service import AuthenticationService
 
 async def check_contract_info():
     """检查合约信息"""

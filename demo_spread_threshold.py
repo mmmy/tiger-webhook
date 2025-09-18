@@ -11,8 +11,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from config.settings import settings
-from utils.spread_calculation import (
+from deribit_webhook.config.settings import settings
+from deribit_webhook.utils.spread_calculation import (
     get_spread_info,
     is_spread_reasonable,
     format_spread_ratio_as_percentage,
@@ -158,7 +158,7 @@ def demo_spread_threshold():
     os.environ["SPREAD_TICK_MULTIPLE_THRESHOLD"] = "5"
     
     # Create new settings instance
-    from config.settings import Settings
+    from deribit_webhook.config.settings import Settings
     custom_settings = Settings()
     
     print(f"After override:")
@@ -181,8 +181,8 @@ def demo_spread_threshold():
     print()
     print("1. In trading services:")
     print("   ```python")
-    print("   from config.settings import settings")
-    print("   from utils.spread_calculation import is_spread_reasonable")
+    print("   from deribit_webhook.config.settings import settings")
+    print("   from deribit_webhook.utils.spread_calculation import is_spread_reasonable")
     print("   ")
     print("   # Check if spread is reasonable for trading")
     print("   reasonable = is_spread_reasonable(")

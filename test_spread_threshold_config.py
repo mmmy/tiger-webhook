@@ -10,8 +10,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from config.settings import settings
-from utils.spread_calculation import (
+from deribit_webhook.config.settings import settings
+from deribit_webhook.utils.spread_calculation import (
     calculate_spread_ratio,
     calculate_spread_tick_multiple,
     is_spread_reasonable,
@@ -40,7 +40,7 @@ def test_spread_threshold_config():
     os.environ["SPREAD_TICK_MULTIPLE_THRESHOLD"] = "3"
     
     # Create new settings instance to test override
-    from config.settings import Settings
+    from deribit_webhook.config.settings import Settings
     test_settings = Settings()
     
     print(f"   SPREAD_RATIO_THRESHOLD=0.20 -> {test_settings.spread_ratio_threshold}")
