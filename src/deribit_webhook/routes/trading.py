@@ -7,10 +7,10 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from pydantic import BaseModel
 
-from deribit_webhook.config import ConfigLoader, settings
-from deribit_webhook.services import DeribitClient, MockDeribitClient
-from deribit_webhook.middleware.account_validation import validate_account_from_params
-from deribit_webhook.models.deribit_types import DeribitOptionInstrument
+from ..config import ConfigLoader, settings
+from ..services import DeribitClient, MockDeribitClient
+from ..middleware.account_validation import validate_account_from_params
+from ..models.deribit_types import DeribitOptionInstrument
 
 
 class InstrumentsResponse(BaseModel):

@@ -56,17 +56,17 @@ type-check:
 
 # Development
 run:
-	cd src && python main.py
+	cd src && python -m deribit_webhook.main
 
 dev:
-	cd src && uvicorn app:app --reload --host 0.0.0.0 --port 3001
+	cd src && uvicorn deribit_webhook.app:app --reload --host 0.0.0.0 --port 3001
 
 # Alternative: run from root directory
 run-root:
-	python -m src.main
+	python -m src.deribit_webhook.main
 
 dev-root:
-	uvicorn src.app:app --reload --host 0.0.0.0 --port 3001
+	uvicorn src.deribit_webhook.app:app --reload --host 0.0.0.0 --port 3001
 
 # Building
 build:

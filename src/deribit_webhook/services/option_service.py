@@ -5,9 +5,9 @@ Option service class - provides option-related functionality
 from typing import Optional, List
 from datetime import datetime
 
-from deribit_webhook.config import ConfigLoader, settings
-from deribit_webhook.models.deribit_types import DeribitOptionInstrument, OptionListResult
-from deribit_webhook.models.trading_types import OptionListParams
+from ..config import ConfigLoader, settings
+from ..models.deribit_types import DeribitOptionInstrument, OptionListResult
+from ..models.trading_types import OptionListParams
 from .auth_service import AuthenticationService
 from .deribit_client import DeribitClient
 from .mock_deribit_client import MockDeribitClient

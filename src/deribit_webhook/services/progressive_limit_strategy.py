@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional
 
 from .deribit_client import DeribitClient
-from deribit_webhook.utils.price_utils import round_to_tick_size
+from ..utils.price_utils import round_to_tick_size
 
 
 @dataclass

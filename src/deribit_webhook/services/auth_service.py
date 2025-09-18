@@ -10,14 +10,14 @@ import httpx
 import asyncio
 from datetime import datetime, timedelta
 
-from deribit_webhook.config import ConfigLoader, settings
-from deribit_webhook.models.auth_types import (
-    AuthToken, 
-    AuthResponse, 
+from ..config import ConfigLoader, settings
+from ..models.auth_types import (
+    AuthToken,
+    AuthResponse,
     DeribitAuthRequestParams,
     DeribitError
 )
-from deribit_webhook.models.config_types import ApiKeyConfig
+from ..models.config_types import ApiKeyConfig
 from .authentication_errors import (
     AuthenticationError,
     TokenExpiredError,

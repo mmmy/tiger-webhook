@@ -9,16 +9,16 @@ import time
 import math
 from datetime import datetime
 
-from deribit_webhook.config import ConfigLoader, settings
-from deribit_webhook.api import (
-    DeribitPublicAPI, 
-    DeribitPrivateAPI, 
-    DeribitConfig, 
+from ..config import ConfigLoader, settings
+from ..api import (
+    DeribitPublicAPI,
+    DeribitPrivateAPI,
+    DeribitConfig,
     AuthInfo,
     get_config_by_environment,
     create_auth_info
 )
-from deribit_webhook.models.deribit_types import DeribitOptionInstrument, OptionDetails
+from ..models.deribit_types import DeribitOptionInstrument, OptionDetails
 from .auth_service import AuthenticationService
 
 

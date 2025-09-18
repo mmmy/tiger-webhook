@@ -7,7 +7,7 @@ from enum import Enum
 from datetime import datetime
 from pydantic import BaseModel, Field
 
-from deribit_webhook.models.trading_types import OptionTradingAction
+from ..models.trading_types import OptionTradingAction
 
 
 class DeltaRecordType(str, Enum):

@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import aiosqlite
 
-from deribit_webhook.config import settings
+from ..config import settings
 from .types import (
     DeltaRecord,
     CreateDeltaRecordInput,

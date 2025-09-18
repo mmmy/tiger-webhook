@@ -9,7 +9,7 @@ import random
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
-from deribit_webhook.models.deribit_types import DeribitOptionInstrument, OptionDetails, OptionGreeks
+from ..models.deribit_types import DeribitOptionInstrument, OptionDetails, OptionGreeks
 from .deribit_client import DeribitOrderResponse
 
 

@@ -8,7 +8,7 @@ import string
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from deribit_webhook.models.trading_types import OptionTradingResult
+from ..models.trading_types import OptionTradingResult
 
 
 def create_request_id() -> str:

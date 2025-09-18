@@ -7,10 +7,10 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Path, Query, Depends
 from pydantic import BaseModel
 
-from deribit_webhook.config import ConfigLoader, settings
-from deribit_webhook.services import DeribitClient, MockDeribitClient
-from deribit_webhook.services.polling_manager import polling_manager
-from deribit_webhook.middleware.account_validation import validate_account_from_params
+from ..config import ConfigLoader, settings
+from ..services import DeribitClient, MockDeribitClient
+from ..services.polling_manager import polling_manager
+from ..middleware.account_validation import validate_account_from_params
 
 
 class PositionsResponse(BaseModel):

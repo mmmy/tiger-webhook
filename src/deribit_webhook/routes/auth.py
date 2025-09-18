@@ -7,9 +7,9 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Depends
 from pydantic import BaseModel
 
-from deribit_webhook.config import ConfigLoader
-from deribit_webhook.services import AuthenticationService
-from deribit_webhook.middleware.account_validation import validate_account_from_params
+from ..config import ConfigLoader
+from ..services import AuthenticationService
+from ..middleware.account_validation import validate_account_from_params
 
 
 class AuthResponse(BaseModel):

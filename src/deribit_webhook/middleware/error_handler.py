@@ -13,7 +13,7 @@ from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from deribit_webhook.config import settings
+from ..config import settings
 
 
 class ErrorResponse(BaseModel):

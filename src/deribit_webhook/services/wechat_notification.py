@@ -11,9 +11,9 @@ from datetime import datetime
 
 import httpx
 
-from deribit_webhook.config import ConfigLoader, settings
-from deribit_webhook.models.config_types import WeChatBotConfig
-from deribit_webhook.models.trading_types import OptionTradingResult
+from ..config import ConfigLoader, settings
+from ..models.config_types import WeChatBotConfig
+from ..models.trading_types import OptionTradingResult
 
 
 class OrderNotificationPayload(TypedDict, total=False):

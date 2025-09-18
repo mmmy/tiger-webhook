@@ -9,11 +9,11 @@ import asyncio
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
-from deribit_webhook.config import ConfigLoader, settings
-from deribit_webhook.services.deribit_client import DeribitClient
-from deribit_webhook.services.mock_deribit_client import MockDeribitClient
-from deribit_webhook.database import get_delta_manager
-from deribit_webhook.database.types import DeltaRecordQuery, DeltaRecordType
+from ..config import ConfigLoader, settings
+from .deribit_client import DeribitClient
+from .mock_deribit_client import MockDeribitClient
+from ..database import get_delta_manager
+from ..database.types import DeltaRecordQuery, DeltaRecordType
 
 
 class PollingManager:
@@ -405,7 +405,7 @@ class PollingManager:
             if option_positions:
                 print(f"📈 {account_name}: {len(option_positions)} option positions, total delta: {total_delta:.4f}")
 
-            # Here you could:
+            # todo: Here you could:
             # 1. Update delta records in database
             # 2. Check for position adjustments needed
             # 3. Send notifications if thresholds exceeded

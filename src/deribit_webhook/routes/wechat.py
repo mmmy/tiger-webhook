@@ -7,9 +7,9 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Path, Depends
 from pydantic import BaseModel
 
-from deribit_webhook.config import ConfigLoader
-from deribit_webhook.services.wechat_notification import wechat_notification_service
-from deribit_webhook.middleware.account_validation import validate_account_from_params
+from ..config import ConfigLoader
+from ..services.wechat_notification import wechat_notification_service
+from ..middleware.account_validation import validate_account_from_params
 
 
 class WeChatTestResponse(BaseModel):

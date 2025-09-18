@@ -12,8 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from deribit_webhook.config import settings
-from deribit_webhook.routes import (
+from .config import settings
+from .routes import (
     health_router,
     webhook_router,
     trading_router,

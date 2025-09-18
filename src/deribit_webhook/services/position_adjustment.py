@@ -8,26 +8,26 @@ Based on ../deribit_webhook/src/services/position-adjustment.ts
 from typing import Optional, Dict, Any, List
 import asyncio
 
-from deribit_webhook.config import ConfigLoader
-from deribit_webhook.database import DeltaManager, get_delta_manager
-from deribit_webhook.database.types import DeltaRecord, DeltaRecordType
-from deribit_webhook.models.trading_types import (
+from ..config import ConfigLoader
+from ..database import DeltaManager, get_delta_manager
+from ..database.types import DeltaRecord, DeltaRecordType
+from ..models.trading_types import (
     OptionTradingParams,
     PositionAdjustmentResult,
     PositionAdjustmentSummary,
     OptionTradingResult
 )
-from deribit_webhook.models.deribit_types import DeribitPosition
-from deribit_webhook.services.auth_service import AuthenticationService
-from deribit_webhook.services.deribit_client import DeribitClient
-from deribit_webhook.services.mock_deribit_client import MockDeribitClient
-from deribit_webhook.utils.spread_calculation import (
+from ..models.deribit_types import DeribitPosition
+from .auth_service import AuthenticationService
+from .deribit_client import DeribitClient
+from .mock_deribit_client import MockDeribitClient
+from ..utils.spread_calculation import (
     is_spread_reasonable,
     calculate_spread_ratio,
     format_spread_ratio_as_percentage
 )
-from deribit_webhook.utils.price_utils import correct_order_amount, correct_smart_price
-from deribit_webhook.utils.logging_config import get_global_logger
+from ..utils.price_utils import correct_order_amount, correct_smart_price
+from ..utils.logging_config import get_global_logger
 
 logger = get_global_logger()
 
@@ -212,7 +212,7 @@ async def execute_position_adjustment(
         is_call = delta_record.move_position_delta > 0
         
         # Get spread thresholds from settings
-        from deribit_webhook.config.settings import settings
+        from ..config.settings import settings
         spread_ratio_threshold = settings.spread_ratio_threshold
         spread_tick_threshold = settings.spread_tick_multiple_threshold
         
@@ -309,7 +309,7 @@ async def execute_position_adjustment(
                    f"contracts of {instrument_name}")
         
         # Use place_option_order for better execution
-        from deribit_webhook.services.option_trading_service import OptionTradingService
+        from .option_trading_service import OptionTradingService
         
         trading_params = OptionTradingParams(
             account_name=account_name,
@@ -543,7 +543,7 @@ async def execute_position_close(
         deribit_client = services['deribit_client']
 
         # Get spread thresholds from settings
-        from deribit_webhook.config.settings import settings
+        from ..config.settings import settings
         spread_ratio_threshold = settings.spread_ratio_threshold
         spread_tick_threshold = settings.spread_tick_multiple_threshold
 

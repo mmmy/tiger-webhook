@@ -12,10 +12,10 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI
 
-from app import create_app
-from deribit_webhook.config import settings
-from deribit_webhook.services.polling_manager import polling_manager
-from deribit_webhook.utils.logging_config import init_logging, get_global_logger
+from .app import create_app
+from .config import settings
+from .services.polling_manager import polling_manager
+from .utils.logging_config import init_logging, get_global_logger
 
 
 class GracefulShutdown:
@@ -105,7 +105,7 @@ async def main():
         
         # Show configured accounts
         try:
-            from deribit_webhook.config import ConfigLoader
+            from .config import ConfigLoader
             config_loader = ConfigLoader.get_instance()
             accounts = config_loader.get_enabled_accounts()
             account_names = [account.name for account in accounts]

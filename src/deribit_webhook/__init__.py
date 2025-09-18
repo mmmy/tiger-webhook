@@ -5,8 +5,8 @@ A comprehensive Python port of the Node.js/TypeScript Deribit webhook service,
 maintaining 100% functionality while leveraging Python's ecosystem.
 """
 
-from deribit_webhook.config.config_loader import ConfigLoader  # noqa: F401
-from deribit_webhook.config.settings import settings  # noqa: F401
+from .config.config_loader import ConfigLoader  # noqa: F401
+from .config.settings import settings  # noqa: F401
 
 __version__ = "1.1.1"
 __author__ = "Deribit Webhook Team"

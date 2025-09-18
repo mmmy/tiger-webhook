@@ -55,7 +55,7 @@ dev = [
 ]
 
 [project.scripts]
-deribit-webhook = "main:cli_main"
+deribit-webhook = "deribit_webhook.main:cli_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

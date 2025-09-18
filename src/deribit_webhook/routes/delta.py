@@ -7,7 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Path
 from pydantic import BaseModel
 
-from deribit_webhook.database import (
+from ..database import (
     get_delta_manager,
     DeltaRecord,
     CreateDeltaRecordInput,

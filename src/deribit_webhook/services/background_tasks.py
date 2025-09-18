@@ -8,8 +8,8 @@ import asyncio
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 
-from deribit_webhook.config import settings
-from deribit_webhook.database import get_delta_manager
+from ..config import settings
+from ..database import get_delta_manager
 
 
 class BackgroundTaskManager:

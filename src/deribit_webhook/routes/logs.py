@@ -14,8 +14,8 @@ from pathlib import Path
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel, Field
 
-from deribit_webhook.config import settings
-from deribit_webhook.utils.response_utils import format_success_response, format_error_response
+from ..config import settings
+from ..utils.response_utils import format_success_response, format_error_response
 
 
 # Router setup

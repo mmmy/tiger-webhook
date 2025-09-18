@@ -10,7 +10,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from deribit_webhook.config import ConfigLoader, settings
+from ..config import ConfigLoader, settings
 
 
 class HealthResponse(BaseModel):

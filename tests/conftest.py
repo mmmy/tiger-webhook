@@ -20,9 +20,9 @@ SRC_PATH = PROJECT_ROOT / 'src'
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from deribit_webhook.app import create_app
-from deribit_webhook.config.config_loader import ConfigLoader
-from deribit_webhook.database.delta_manager import DeltaManager
+from src.deribit_webhook.app import create_app
+from src.deribit_webhook.config.config_loader import ConfigLoader
+from src.deribit_webhook.database.delta_manager import DeltaManager
 
 
 @pytest.fixture(scope="session")

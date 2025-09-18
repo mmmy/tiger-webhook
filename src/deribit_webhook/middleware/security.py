@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from deribit_webhook.config import settings
+from ..config import settings
 
 
 class RateLimiter:

@@ -11,10 +11,10 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 
-from deribit_webhook.config import ConfigLoader
-from deribit_webhook.models.webhook_types import WebhookSignalPayload
-from deribit_webhook.services import OptionTradingService
-from deribit_webhook.middleware.account_validation import validate_account_from_body
+from ..config import ConfigLoader
+from ..models.webhook_types import WebhookSignalPayload
+from ..services import OptionTradingService
+from ..middleware.account_validation import validate_account_from_body
 
 
 class WebhookResponse(BaseModel):

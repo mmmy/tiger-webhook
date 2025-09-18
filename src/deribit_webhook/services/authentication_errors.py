@@ -5,8 +5,8 @@ Authentication error classes and result types
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from deribit_webhook.models.auth_types import AuthToken
-from deribit_webhook.models.config_types import ApiKeyConfig
+from ..models.auth_types import AuthToken
+from ..models.config_types import ApiKeyConfig
 
 
 class AuthenticationError(Exception):

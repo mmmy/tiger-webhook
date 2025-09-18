@@ -8,10 +8,10 @@ from typing import Optional, Dict, Any
 import asyncio
 import time
 
-from deribit_webhook.config import ConfigLoader, settings
-from deribit_webhook.database import DeltaManager, get_delta_manager
-from deribit_webhook.models.webhook_types import WebhookSignalPayload
-from deribit_webhook.models.trading_types import (
+from ..config import ConfigLoader, settings
+from ..database import DeltaManager, get_delta_manager
+from ..models.webhook_types import WebhookSignalPayload
+from ..models.trading_types import (
     OptionTradingAction,
     OptionTradingParams,
     OptionTradingResult,
@@ -23,7 +23,7 @@ from .mock_deribit_client import MockDeribitClient
 from .option_service import OptionService
 from .wechat_notification import wechat_notification_service, OrderNotificationPayload
 from .progressive_limit_strategy import ProgressiveLimitParams, execute_progressive_limit_strategy
-from deribit_webhook.utils.logging_config import get_global_logger
+from ..utils.logging_config import get_global_logger
 
 logger = get_global_logger()
 
@@ -292,8 +292,8 @@ class OptionTradingService:
         instrument_name: str
     ):
         """Create Delta record in database"""
-        from deribit_webhook.database.types import CreateDeltaRecordInput, DeltaRecordType
-        from deribit_webhook.database.delta_manager import get_delta_manager
+        from ..database.types import CreateDeltaRecordInput, DeltaRecordType
+        from ..database.delta_manager import get_delta_manager
 
         # Determine record type based on action
         record_type = DeltaRecordType.POSITION if params.action in [
@@ -433,7 +433,7 @@ class OptionTradingService:
                   f"action={params.action} → {actual_direction}")
 
             # Get Deribit client
-            from deribit_webhook.services.deribit_client import DeribitClient
+            from .deribit_client import DeribitClient
             deribit_client = DeribitClient()
 
             try:
@@ -519,7 +519,7 @@ class OptionTradingService:
             print(f"?? Placing real order for instrument: {instrument_name}")
             print(f"?? Direction: {direction}, Quantity: {quantity}")
 
-            from deribit_webhook.services.deribit_client import DeribitClient
+            from .deribit_client import DeribitClient
             deribit_client = DeribitClient()
 
             try:
@@ -534,8 +534,8 @@ class OptionTradingService:
                 )
                 print(f"?? Final parameters: quantity={final_quantity}, price={final_price}")
 
-                from deribit_webhook.config.settings import settings
-                from deribit_webhook.utils.spread_calculation import is_spread_reasonable, format_spread_ratio_as_percentage
+                from ..config.settings import settings
+                from ..utils.spread_calculation import is_spread_reasonable, format_spread_ratio_as_percentage
 
                 spread_ratio = delta_result.spread_ratio
                 spread_ratio_threshold = settings.spread_ratio_threshold
@@ -828,7 +828,7 @@ class OptionTradingService:
                     )
 
                     # Execute position adjustment based on tv_id
-                    from deribit_webhook.services.position_adjustment import execute_position_adjustment_by_tv_id
+                    from .position_adjustment import execute_position_adjustment_by_tv_id
 
                     adjustment_result = await execute_position_adjustment_by_tv_id(
                         params.account_name,
@@ -884,7 +884,7 @@ class OptionTradingService:
                     )
 
                     # Execute position close based on tv_id
-                    from deribit_webhook.services.position_adjustment import execute_position_close_by_tv_id
+                    from .position_adjustment import execute_position_close_by_tv_id
 
                     close_result = await execute_position_close_by_tv_id(
                         params.account_name,
@@ -938,7 +938,7 @@ class OptionTradingService:
                     )
 
                     # Execute stop loss logic: use position close with 50% ratio
-                    from deribit_webhook.services.position_adjustment import execute_position_close_by_tv_id
+                    from .position_adjustment import execute_position_close_by_tv_id
 
                     stop_result = await execute_position_close_by_tv_id(
                         params.account_name,

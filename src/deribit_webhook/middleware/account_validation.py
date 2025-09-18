@@ -6,8 +6,8 @@ from typing import Any, List
 from datetime import datetime
 from fastapi import HTTPException, Request, Depends
 
-from deribit_webhook.config import ConfigLoader
-from deribit_webhook.models.config_types import ApiKeyConfig
+from ..config import ConfigLoader
+from ..models.config_types import ApiKeyConfig
 
 
 class AccountValidationError(Exception):

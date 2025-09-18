@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any
 import structlog
 from pathlib import Path
 
-from deribit_webhook.config.settings import settings
+from ..config.settings import settings
 
 
 class MillisecondFormatter(logging.Formatter):

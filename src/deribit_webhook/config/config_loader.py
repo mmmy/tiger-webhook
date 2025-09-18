@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import yaml
 
-from deribit_webhook.models.config_types import DeribitConfig, ApiKeyConfig, WeChatBotConfig
+from ..models.config_types import DeribitConfig, ApiKeyConfig, WeChatBotConfig
 from .settings import settings
 
 
@@ -37,10 +37,30 @@ class ConfigLoader:
             return self._config
         
         try:
-            config_path = Path(settings.api_key_file).resolve()
-            
-            if not config_path.exists():
-                raise FileNotFoundError(f"Configuration file not found: {config_path}")
+            # Try to find the config file in multiple locations
+            config_file = settings.api_key_file
+
+            # List of possible paths to try
+            # Get the project root directory (4 levels up from this file: config_loader.py -> config -> deribit_webhook -> src -> project_root)
+            project_root = Path(__file__).parent.parent.parent.parent
+
+            possible_paths = [
+                Path(config_file),  # Relative to current directory
+                project_root / config_file,  # Relative to project root
+                project_root / "config" / "apikeys.yml",  # Direct path to config directory
+            ]
+
+            config_path = None
+            for path in possible_paths:
+                resolved_path = path.resolve()
+                if resolved_path.exists():
+                    config_path = resolved_path
+                    break
+
+            if config_path is None:
+                # Show all attempted paths in error message
+                attempted_paths = [str(p.resolve()) for p in possible_paths]
+                raise FileNotFoundError(f"Configuration file not found. Tried: {', '.join(attempted_paths)}")
             
             with open(config_path, 'r', encoding='utf-8') as file:
                 config_data = yaml.safe_load(file)
