@@ -1,0 +1,1756 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delta管理器 - Deribit期权交易</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <style>
+        /* Delta Manager specific styles extending dashboard.css */
+
+        .delta-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .delta-header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+
+        .delta-header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .delta-subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .account-selector {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .account-selector select {
+            padding: 12px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            background: white;
+            color: #2d3748;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transition: all 0.2s ease;
+        }
+
+        .account-selector select:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+        }
+
+        .stats-section {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 40px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+            color: white;
+            padding: 24px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(66, 153, 225, 0.3);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(66, 153, 225, 0.4);
+        }
+
+        .stat-card h3 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            opacity: 0.9;
+            font-weight: 500;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .stat-subtitle {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            font-style: italic;
+        }
+
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 40px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            color: #2d3748;
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 3px solid #4299e1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .table-container {
+            background: #f7fafc;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+            color: white;
+            padding: 16px 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: none;
+        }
+
+        td {
+            padding: 14px 12px;
+            border-bottom: 1px solid #e2e8f0;
+            color: #4a5568;
+            font-size: 0.9rem;
+        }
+
+        tr:hover {
+            background-color: #f1f5f9;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .btn-sm:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .btn-view {
+            background-color: #38b2ac;
+            color: white;
+        }
+
+        .btn-edit {
+            background-color: #4299e1;
+            color: white;
+        }
+
+        .btn-delete {
+            background-color: #f56565;
+            color: white;
+        }
+
+        .btn-add {
+            background-color: #48bb78;
+            color: white;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 32px;
+            border: none;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-50px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .close {
+            color: #a0aec0;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+            transition: color 0.2s ease;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: #f56565;
+            text-decoration: none;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            background: white;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+        }
+        }
+
+        .delta-positive {
+            color: #48bb78;
+            font-weight: bold;
+        }
+
+        .delta-negative {
+            color: #f56565;
+            font-weight: bold;
+        }
+
+        .action-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .action-buy {
+            background: #48bb78;
+            color: white;
+        }
+
+        .action-sell {
+            background: #f56565;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+            font-style: italic;
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #f56565;
+        }
+
+        .success {
+            background: #c6f6d5;
+            color: #2f855a;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #48bb78;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #718096;
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state-text {
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+        }
+
+        .empty-state-subtext {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        /* Navigation */
+        .nav-breadcrumb {
+            margin-bottom: 20px;
+        }
+
+        .nav-breadcrumb a {
+            color: white;
+            text-decoration: none;
+            opacity: 0.8;
+            transition: opacity 0.2s ease;
+        }
+
+        .nav-breadcrumb a:hover {
+            opacity: 1;
+            text-decoration: underline;
+        }
+
+        .nav-breadcrumb span {
+            color: white;
+            margin: 0 8px;
+            opacity: 0.6;
+        }
+
+        .status-valid {
+            color: #48bb78;
+            font-weight: bold;
+        }
+
+        .status-invalid {
+            color: #f56565;
+            font-weight: bold;
+            cursor: help;
+        }
+
+        .status-unknown {
+            color: #ed8936;
+            font-weight: bold;
+        }
+
+        .status-normal {
+            color: #48bb78;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .status-abnormal {
+            color: #f56565;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        /* 警报消息弹窗样式 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background-color 0.2s;
+        }
+
+        .modal-close:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-body p {
+            margin: 0 0 15px 0;
+            color: #666;
+        }
+
+        #alertMessageText {
+            width: 100%;
+            height: 200px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.4;
+            resize: vertical;
+            background-color: #f8f9fa;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+
+        #alertMessageText:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+
+        .invalid-record {
+            background-color: #fed7d7;
+            border-left: 4px solid #f56565;
+        }
+
+        .invalid-record:hover {
+            background-color: #fbb6ce;
+        }
+
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: #4299e1;
+            color: white;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 8px 25px rgba(66, 153, 225, 0.4);
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+
+        .refresh-btn:hover {
+            transform: scale(1.1);
+            background: #3182ce;
+            box-shadow: 0 12px 35px rgba(66, 153, 225, 0.5);
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .delta-container {
+                padding: 16px;
+            }
+
+            .delta-header h1 {
+                font-size: 2rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section {
+                padding: 24px;
+            }
+
+            table {
+                font-size: 0.8rem;
+            }
+
+            th, td {
+                padding: 10px 8px;
+            }
+
+            .btn-group {
+                flex-direction: column;
+            }
+
+            .btn-sm {
+                width: 100%;
+                margin-bottom: 4px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="delta-container">
+        <header class="delta-header">
+            <div class="nav-breadcrumb">
+                <a href="/">🏠 首页</a>
+                <span>/</span>
+                <span>Delta管理器</span>
+            </div>
+            <h1>📊 Delta管理器</h1>
+            <p class="delta-subtitle">Deribit期权仓位和订单Delta管理</p>
+
+            <div class="account-selector">
+                <select id="accountSelect">
+                    <option value="">请选择账户...</option>
+                </select>
+                <button class="btn btn-primary" onclick="copyAlertMessage()" style="margin-left: 10px;">
+                    📋 复制警报消息
+                </button>
+            </div>
+        </header>
+
+        <div id="loadingMessage" class="loading">
+            <div class="empty-state">
+                <div class="empty-state-icon">🔄</div>
+                <div class="empty-state-text">正在加载数据...</div>
+                <div class="empty-state-subtext">请稍候，正在获取最新的Delta数据</div>
+            </div>
+        </div>
+
+        <div id="errorMessage" class="error" style="display: none;"></div>
+        <div id="successMessage" class="success" style="display: none;"></div>
+
+        <div id="mainContent" style="display: none;">
+            <!-- 统计信息 -->
+            <div class="stats-section">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>总记录数</h3>
+                        <div class="value" id="totalRecords">0</div>
+                        <div class="stat-subtitle">数据库记录总数</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>仓位记录</h3>
+                        <div class="value" id="positionRecords">0</div>
+                        <div class="stat-subtitle">Position Records</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>订单记录</h3>
+                        <div class="value" id="orderRecords">0</div>
+                        <div class="stat-subtitle">Order Records</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>账户汇总</h3>
+                        <div class="value" id="accountSummary">0</div>
+                        <div class="stat-subtitle">Account Summary</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 数据库中的仓位记录 -->
+            <div class="section">
+                <div class="section-title">
+                    📊 数据库仓位记录
+                    <div>
+                        <button class="btn btn-primary" onclick="refreshData()">
+                            🔄 刷新所有
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="positionRecordsTable">
+                        <thead>
+                            <tr>
+                                <th>状态</th>
+                                <th>合约名称</th>
+                                <th>数量</th>
+                                <th>目标Delta</th>
+                                <th>移仓Delta</th>
+                                <th>最小到期天数</th>
+                                <th>TV_ID</th>
+                                <th>动作</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 数据库中的订单记录 -->
+            <div class="section">
+                <div class="section-title">
+                    📋 数据库订单记录
+                </div>
+                <div class="table-container">
+                    <table id="orderRecordsTable">
+                        <thead>
+                            <tr>
+                                <th>状态</th>
+                                <th>订单ID</th>
+                                <th>合约名称</th>
+                                <th>数量</th>
+                                <th>目标Delta</th>
+                                <th>移仓Delta</th>
+                                <th>最小到期天数</th>
+                                <th>TV_ID</th>
+                                <th>动作</th>
+                                <th>更新时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 实际仓位 -->
+            <div class="section">
+                <div class="section-title">
+                    🏦 实际仓位 (所有品种期权)
+                    <div>
+                        <button class="btn btn-primary" onclick="refreshLiveData()">
+                            🔄 刷新
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="positionsTable">
+                        <thead>
+                            <tr>
+                                <th>合约名称</th>
+                                <th>数量</th>
+                                <th>方向</th>
+                                    <th>平均价格</th>
+                                    <th>标记价格</th>
+                                    <th>Delta</th>
+                                    <th>Delta平均值</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 未成交订单 -->
+                <div class="section">
+                    <div class="section-title">
+                        📋 未成交订单 (未记录在数据库中)
+                    </div>
+                    <div class="table-container">
+                        <table id="ordersTable">
+                            <thead>
+                                <tr>
+                                    <th>订单ID</th>
+                                    <th>合约名称</th>
+                                    <th>方向</th>
+                                    <th>数量</th>
+                                    <th>价格</th>
+                                    <th>类型</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 刷新按钮 -->
+    <button class="refresh-btn" onclick="refreshData()" title="刷新数据">
+        🔄
+    </button>
+
+    <script>
+        let currentAccount = '';
+        let deltaRecords = [];
+        let livePositions = [];
+        let liveOrders = [];
+        let validatedRecords = [];
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', async function() {
+            await loadAccounts();
+            
+            // 从URL参数获取账户ID
+            const urlParams = new URLSearchParams(window.location.search);
+            const accountId = urlParams.get('account');
+            if (accountId) {
+                document.getElementById('accountSelect').value = accountId;
+                selectAccount(accountId);
+            }
+        });
+
+        // 加载账户列表
+        async function loadAccounts() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                const accounts = data.accounts || [];
+                const select = document.getElementById('accountSelect');
+                select.innerHTML = '<option value="">请选择账户...</option>';
+                
+                accounts.forEach(account => {
+                    const option = document.createElement('option');
+                    option.value = account.name || account;
+                    option.textContent = account.name || account;
+                    select.appendChild(option);
+                });
+                
+                select.addEventListener('change', function() {
+                    if (this.value) {
+                        selectAccount(this.value);
+                        // 更新URL参数
+                        const url = new URL(window.location);
+                        url.searchParams.set('account', this.value);
+                        window.history.pushState({}, '', url);
+                    }
+                });
+                
+            } catch (error) {
+                showError('加载账户列表失败: ' + error.message);
+            }
+        }
+
+        // 选择账户
+        function selectAccount(accountId) {
+            currentAccount = accountId;
+            loadData();
+        }
+
+        // 加载数据
+        async function loadData() {
+            if (!currentAccount) {
+                showError('请先选择账户');
+                return;
+            }
+
+            showLoading();
+
+            try {
+                // 加载Delta记录
+                const recordsResponse = await fetch(`/api/delta/records?account_id=${currentAccount}`);
+                const recordsData = await recordsResponse.json();
+
+                if (!recordsData.success) {
+                    throw new Error(recordsData.message);
+                }
+
+                deltaRecords = recordsData.records || [];
+                validatedRecords = deltaRecords; // 简化处理
+
+                // 加载实时仓位和订单数据
+                await loadLiveData();
+
+                // 加载Delta统计
+                const statsResponse = await fetch('/api/delta/stats');
+                const statsData = await statsResponse.json();
+
+                // 更新界面
+                updateStats(recordsData, statsData.stats);
+                updatePositionRecordsTable();
+                updateOrderRecordsTable();
+                updatePositionsTable();
+                updateOrdersTable();
+
+                hideLoading();
+                showSuccess('数据加载成功');
+
+            } catch (error) {
+                hideLoading();
+                showError('加载数据失败: ' + error.message);
+            }
+        }
+
+        // 加载实时数据
+        async function loadLiveData() {
+            try {
+                const response = await fetch(`/api/positions/${currentAccount}/BTC`);
+                const data = await response.json();
+
+                if (data.success) {
+                    livePositions = data.positions || [];
+                    // 注意：API 返回的是 positions，但我们需要模拟 openOrders
+                    liveOrders = []; // 暂时为空，因为当前 API 不返回订单数据
+                } else {
+                    // Mock 数据作为后备
+                    livePositions = [];
+                    liveOrders = [];
+                }
+            } catch (error) {
+                console.warn('加载实时数据失败，使用空数据:', error);
+                livePositions = [];
+                liveOrders = [];
+            }
+        }
+
+        // 刷新实时数据
+        async function refreshLiveData() {
+            if (!currentAccount) {
+                showError('请先选择账户');
+                return;
+            }
+
+            try {
+                await loadLiveData();
+                updatePositionsTable();
+                updateOrdersTable();
+                showSuccess('实时数据刷新成功');
+            } catch (error) {
+                showError('刷新实时数据失败: ' + error.message);
+            }
+        }
+
+        // 更新统计信息
+        function updateStats(recordsData, stats) {
+            const positionRecords = deltaRecords.filter(r => r.record_type === 'position');
+            const orderRecords = deltaRecords.filter(r => r.record_type === 'order');
+            
+            document.getElementById('totalRecords').textContent = deltaRecords.length;
+            document.getElementById('positionRecords').textContent = positionRecords.length;
+            document.getElementById('orderRecords').textContent = orderRecords.length;
+            document.getElementById('accountSummary').textContent = stats ? '已加载' : '无数据';
+        }
+
+        // 更新仓位记录表格
+        function updatePositionRecordsTable() {
+            const tbody = document.querySelector('#positionRecordsTable tbody');
+            tbody.innerHTML = '';
+
+            const positionRecords = validatedRecords.filter(record => record.record_type === 'position');
+
+            positionRecords.forEach(record => {
+                const row = document.createElement('tr');
+
+                const targetDeltaClass = record.target_delta >= 0 ? 'delta-positive' : 'delta-negative';
+                const movePositionDeltaClass = (record.move_position_delta || 0) >= 0 ? 'delta-positive' : 'delta-negative';
+
+                // 检查同步状态：数据库记录是否在实际仓位中存在
+                const hasLivePosition = livePositions.some(position =>
+                    position.instrument_name === record.instrument_name &&
+                    Math.abs(position.size) > 0
+                );
+
+                const combinedStatus = hasLivePosition ?
+                    '<span class="status-normal">🟢 正常</span>' :
+                    '<span class="status-abnormal">🔴 不存在</span>';
+
+                row.innerHTML = `
+                    <td>${combinedStatus}</td>
+                    <td>${record.instrument_name}</td>
+                    <td>${record.amount || '-'}</td>
+                    <td class="${targetDeltaClass}">${record.target_delta.toFixed(4)}</td>
+                    <td class="${movePositionDeltaClass}">${(record.move_position_delta || 0).toFixed(4)}</td>
+                    <td>${record.min_expire_days || '-'}</td>
+                    <td>${record.tv_id || '-'}</td>
+                    <td>${record.action || '-'}</td>
+                    <td>${new Date(record.created_at).toLocaleString()}</td>
+                    <td>
+                        <div class="btn-group">
+                            <button class="btn-sm btn-view" onclick="viewRecord('${record.id}')">查看</button>
+                            <button class="btn-sm btn-edit" data-action="edit" data-record-id="${record.id}">编辑</button>
+                            <button class="btn-sm btn-delete" data-action="delete" data-record-id="${record.id}">删除</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            if (positionRecords.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="10" style="text-align: center; color: #7f8c8d;">暂无仓位记录</td>';
+                tbody.appendChild(row);
+            }
+        }
+
+        // 更新订单记录表格
+        function updateOrderRecordsTable() {
+            const tbody = document.querySelector('#orderRecordsTable tbody');
+            tbody.innerHTML = '';
+
+            const orderRecords = validatedRecords.filter(record => record.record_type === 'order');
+
+            orderRecords.forEach(record => {
+                const row = document.createElement('tr');
+
+                const targetDeltaClass = record.target_delta >= 0 ? 'delta-positive' : 'delta-negative';
+                const movePositionDeltaClass = (record.move_position_delta || 0) >= 0 ? 'delta-positive' : 'delta-negative';
+
+                // 检查同步状态：数据库记录是否在实际订单中存在
+                const hasLiveOrder = liveOrders.some(order =>
+                    order.order_id === record.order_id ||
+                    (order.instrument_name === record.instrument_name && order.order_state === 'open')
+                );
+
+                const combinedStatus = hasLiveOrder ?
+                    '<span class="status-normal">🟢 正常</span>' :
+                    '<span class="status-abnormal">🔴 不存在</span>';
+
+                row.innerHTML = `
+                    <td>${combinedStatus}</td>
+                    <td>${record.order_id || '-'}</td>
+                    <td>${record.instrument_name}</td>
+                    <td>${record.amount || '-'}</td>
+                    <td class="${targetDeltaClass}">${record.target_delta.toFixed(4)}</td>
+                    <td class="${movePositionDeltaClass}">${(record.move_position_delta || 0).toFixed(4)}</td>
+                    <td>${record.min_expire_days || '-'}</td>
+                    <td>${record.tv_id || '-'}</td>
+                    <td>${record.action || '-'}</td>
+                    <td>${new Date(record.updated_at || record.created_at).toLocaleString()}</td>
+                    <td>
+                        <div class="btn-group">
+                            <button class="btn-sm btn-view" onclick="viewRecord('${record.id}')">查看</button>
+                            <button class="btn-sm btn-edit" data-action="edit" data-record-id="${record.id}">编辑</button>
+                            <button class="btn-sm btn-delete" data-action="delete" data-record-id="${record.id}">删除</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            if (orderRecords.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="11" style="text-align: center; color: #7f8c8d;">暂无订单记录</td>';
+                tbody.appendChild(row);
+            }
+        }
+
+        // 更新实际仓位表格
+        function updatePositionsTable() {
+            const tbody = document.querySelector('#positionsTable tbody');
+            tbody.innerHTML = '';
+
+            // 过滤出未记录在数据库中的仓位
+            const unrecordedPositions = livePositions.filter(position => {
+                return !deltaRecords.some(record =>
+                    record.record_type === 'position' &&
+                    record.instrument_name === position.instrument_name
+                );
+            });
+
+            unrecordedPositions.forEach(position => {
+                const row = document.createElement('tr');
+
+                const deltaClass = position.delta >= 0 ? 'delta-positive' : 'delta-negative';
+                const direction = position.size > 0 ? '多头' : '空头';
+                const directionClass = position.size > 0 ? 'action-buy' : 'action-sell';
+
+                row.innerHTML = `
+                    <td>${position.instrument_name}</td>
+                    <td>${Math.abs(position.size)}</td>
+                    <td><span class="action-badge ${directionClass}">${direction}</span></td>
+                    <td>${position.average_price ? position.average_price.toFixed(4) : '-'}</td>
+                    <td>${position.mark_price ? position.mark_price.toFixed(4) : '-'}</td>
+                    <td class="${deltaClass}">${position.delta ? position.delta.toFixed(4) : '-'}</td>
+                    <td class="${deltaClass}">${position.delta ? position.delta.toFixed(4) : '-'}</td>
+                    <td>
+                        <button class="btn-sm btn-add" data-action="add-position" data-instrument="${position.instrument_name}">
+                            ➕ 添加到数据库
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            if (unrecordedPositions.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="8" style="text-align: center; color: #7f8c8d;">所有仓位都已记录在数据库中</td>';
+                tbody.appendChild(row);
+            }
+        }
+
+        // 更新未成交订单表格
+        function updateOrdersTable() {
+            const tbody = document.querySelector('#ordersTable tbody');
+            tbody.innerHTML = '';
+
+            // 过滤出未记录在数据库中的订单
+            const unrecordedOrders = liveOrders.filter(order => {
+                return !deltaRecords.some(record =>
+                    record.record_type === 'order' &&
+                    record.order_id === order.order_id
+                );
+            });
+
+            unrecordedOrders.forEach(order => {
+                const row = document.createElement('tr');
+
+                const direction = order.direction === 'buy' ? '买入' : '卖出';
+                const directionClass = order.direction === 'buy' ? 'action-buy' : 'action-sell';
+
+                row.innerHTML = `
+                    <td>${order.order_id}</td>
+                    <td>${order.instrument_name}</td>
+                    <td><span class="action-badge ${directionClass}">${direction}</span></td>
+                    <td>${order.amount}</td>
+                    <td>${order.price ? order.price.toFixed(4) : '-'}</td>
+                    <td>${order.order_type || 'limit'}</td>
+                    <td>
+                        <button class="btn-sm btn-add" data-action="add-order" data-order-id="${order.order_id}" data-instrument="${order.instrument_name}">
+                            ➕ 添加到数据库
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            if (unrecordedOrders.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="7" style="text-align: center; color: #7f8c8d;">暂无未记录的订单</td>';
+                tbody.appendChild(row);
+            }
+        }
+
+        // 刷新数据
+        function refreshData() {
+            if (currentAccount) {
+                loadData();
+            }
+        }
+
+        // 复制警报消息
+        function copyAlertMessage() {
+            const accountId = document.getElementById('accountSelect').value;
+            if (!accountId) {
+                showError('请先选择账户');
+                return;
+            }
+
+            // 生成随机TV_ID
+            const tvId = Math.floor(Math.random() * 9999999999) + 1000000000;
+
+            // 生成TradingView警报消息格式（匹配原始TypeScript版本）
+            const alertMessage = `{
+  "accountName": "${accountId}",
+  "symbol": "{{ticker}}",
+  "side": "{{strategy.order.action}}",
+  "size": {{plot("size")}},
+  "price": "{{close}}",
+  "marketPosition": "{{strategy.market_position}}",
+  "prevMarketPosition": "{{strategy.prev_market_position}}",
+  "qtyType": "cash",
+  "delta1": {{plot("delta1")}},
+  "n": {{plot("n")}},
+  "delta2": {{plot("delta2")}},
+  "timestamp": "{{timenow}}",
+  "alertMessage": "{{strategy.order.alert_message}}",
+  "comment": "{{strategy.order.comment}}",
+  "tv_id": ${tvId}
+}`;
+
+            // 显示弹窗
+            showAlertMessageModal(alertMessage);
+        }
+
+        // 显示警报消息弹窗
+        function showAlertMessageModal(alertMessage) {
+            // 创建弹窗HTML
+            const modalHtml = `
+                <div class="modal-overlay" id="alertMessageModal" onclick="closeAlertMessageModal()">
+                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+                        <div class="modal-header">
+                            <h3>📋 TradingView 警报消息模板</h3>
+                            <button class="modal-close" onclick="closeAlertMessageModal()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <p>复制以下JSON消息模板到TradingView警报中，系统会自动替换相应的变量：</p>
+
+                            <div style="position: relative; margin: 15px 0;">
+                                <button class="btn btn-primary" onclick="copyToClipboard()" style="position: absolute; top: 10px; right: 10px; z-index: 10;">复制</button>
+                                <textarea id="alertMessageText" readonly style="width: 100%; height: 300px; font-family: monospace; font-size: 12px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f8f9fa;">${alertMessage}</textarea>
+                            </div>
+
+                            <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px; padding: 15px; margin: 15px 0;">
+                                <h4 style="margin: 0 0 10px 0; color: #856404;">⚠️ 重要提醒：品种选择注意事项</h4>
+                                <div style="margin-bottom: 10px;">
+                                    <p style="margin: 5px 0;">• <strong>xxUSDC品种</strong>：用来交易USDC期权（现金结算）</p>
+                                    <p style="margin: 5px 0;">• <strong>xxUSDT品种</strong>：用来交易币本位期权（实物结算）</p>
+                                </div>
+                                <p style="margin: 5px 0; font-size: 14px;">请根据您的交易需求选择正确的品种，避免因品种选择错误导致的交易问题。</p>
+                            </div>
+
+                            <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 5px; padding: 15px; margin: 15px 0;">
+                                <h4 style="margin: 0 0 10px 0; color: #0056b3;">📝 使用说明：</h4>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    <li><strong>accountName</strong>: 自动使用当前选中的账户</li>
+                                    <li><strong>tv_id</strong>: 自动生成随机整数ID</li>
+                                    <li><strong>{{ticker}}</strong>: TradingView会替换为当前交易对</li>
+                                    <li><strong>{{strategy.order.action}}</strong>: TradingView会替换为策略动作</li>
+                                    <li><strong>{{plot("size")}}</strong>: TradingView会替换为自定义size值</li>
+                                    <li><strong>{{close}}</strong>: TradingView会替换为当前收盘价</li>
+                                    <li>其他变量会被TradingView自动替换为相应的值</li>
+                                </ul>
+                            </div>
+
+                            <div class="modal-actions">
+                                <button class="btn btn-primary" onclick="copyToClipboard()">📋 复制到剪贴板</button>
+                                <button class="btn btn-secondary" onclick="closeAlertMessageModal()">关闭</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // 添加到页面
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // 选中文本
+            const textarea = document.getElementById('alertMessageText');
+            textarea.select();
+        }
+
+        // 关闭警报消息弹窗
+        function closeAlertMessageModal() {
+            const modal = document.getElementById('alertMessageModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // 复制到剪贴板
+        function copyToClipboard() {
+            const textarea = document.getElementById('alertMessageText');
+            const text = textarea.value;
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showSuccess('警报消息已复制到剪贴板');
+                    closeAlertMessageModal();
+                }).catch(err => {
+                    console.error('复制失败:', err);
+                    fallbackCopyTextToClipboard(text);
+                });
+            } else {
+                fallbackCopyTextToClipboard(text);
+            }
+        }
+
+        // 降级复制方案
+        function fallbackCopyTextToClipboard(text) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+
+            textArea.style.top = "0";
+            textArea.style.left = "0";
+            textArea.style.position = "fixed";
+
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showSuccess('警报消息已复制到剪贴板');
+                    closeAlertMessageModal();
+                } else {
+                    showError('复制失败，请手动复制');
+                }
+            } catch (err) {
+                console.error('Fallback: 复制失败', err);
+                showError('复制失败，请手动复制');
+            }
+
+            document.body.removeChild(textArea);
+        }
+
+        // 查看记录详情
+        function viewRecord(recordId) {
+            const record = deltaRecords.find(r => r.id == recordId);
+            if (record) {
+                alert(`记录详情:\n${JSON.stringify(record, null, 2)}`);
+            }
+        }
+
+        // 添加仓位到数据库 - 确保在全局作用域
+        window.addPositionToDatabase = function(instrumentName) {
+            try {
+                showQuickAddModal(instrumentName, 'position');
+            } catch (error) {
+                console.error('❌ addPositionToDatabase 错误:', error);
+                alert('添加仓位失败: ' + error.message);
+            }
+        };
+
+        // 添加订单到数据库 - 确保在全局作用域
+        window.addOrderToDatabase = function(orderId, instrumentName) {
+            console.log('🎯 addOrderToDatabase 被调用:', orderId, instrumentName);
+            try {
+                showQuickAddModal(instrumentName, 'order', orderId);
+            } catch (error) {
+                console.error('❌ addOrderToDatabase 错误:', error);
+                alert('添加订单失败: ' + error.message);
+            }
+        };
+
+        // 显示加载状态
+        function showLoading(message = '正在加载数据...') {
+            document.getElementById('loadingMessage').innerHTML = `<h3>🔄 ${message}</h3>`;
+            document.getElementById('loadingMessage').style.display = 'block';
+            document.getElementById('mainContent').style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'none';
+            document.getElementById('successMessage').style.display = 'none';
+        }
+
+        // 隐藏加载状态
+        function hideLoading() {
+            document.getElementById('loadingMessage').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'block';
+        }
+
+        // 显示错误信息
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorMessage').style.display = 'block';
+            document.getElementById('successMessage').style.display = 'none';
+            setTimeout(() => {
+                document.getElementById('errorMessage').style.display = 'none';
+            }, 5000);
+        }
+
+        // 显示成功信息
+        function showSuccess(message) {
+            document.getElementById('successMessage').textContent = message;
+            document.getElementById('successMessage').style.display = 'block';
+            document.getElementById('errorMessage').style.display = 'none';
+            setTimeout(() => {
+                document.getElementById('successMessage').style.display = 'none';
+            }, 3000);
+        }
+
+        // 编辑记录
+        function editRecord(recordId) {
+            const record = validatedRecords.find(r => r.id === recordId);
+            if (!record) {
+                showError('记录不存在');
+                return;
+            }
+
+            editingRecordId = recordId;
+            document.getElementById('editModalTitle').textContent = '编辑Delta记录';
+            document.getElementById('editInstrumentName').value = record.instrument_name;
+            document.getElementById('editTargetDeltaValue').value = record.target_delta;
+            document.getElementById('editMovePositionDeltaValue').value = record.move_position_delta || 0;
+            document.getElementById('editMinExpireDays').value = record.min_expire_days || '';
+            document.getElementById('editTvId').value = record.tv_id || '';
+
+            if (record.record_type === 'order') {
+                document.getElementById('editOrderIdGroup').style.display = 'block';
+                document.getElementById('editOrderId').value = record.order_id || '';
+            } else {
+                document.getElementById('editOrderIdGroup').style.display = 'none';
+            }
+
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        // 删除记录
+        async function deleteRecord(recordId) {
+            const record = validatedRecords.find(r => r.id === recordId);
+            if (!record) {
+                showError('记录不存在');
+                return;
+            }
+
+            const confirmMessage = `确定要删除这条记录吗？\n\n` +
+                `合约: ${record.instrument_name}\n` +
+                `目标Delta: ${record.target_delta}\n` +
+                `移仓Delta: ${record.move_position_delta || 0}\n` +
+                `类型: ${record.record_type === 'position' ? '仓位' : '订单'}\n` +
+                `TV_ID: ${record.tv_id || '无'}\n` +
+                `创建时间: ${new Date(record.created_at).toLocaleString()}`;
+
+            if (!confirm(confirmMessage)) return;
+
+            try {
+                console.log('🗑️ 删除记录:', recordId);
+
+                const response = await fetch(`/api/delta/records/${recordId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.message);
+                }
+
+                showSuccess(`记录删除成功 (${record.instrument_name})`);
+                loadData();
+
+            } catch (error) {
+                console.error('❌ 删除记录失败:', error);
+                showError('删除失败: ' + error.message);
+            }
+        }
+
+        // 关闭编辑模态框
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+            editingRecordId = null;
+        }
+
+        // 全局变量
+        let editingRecordId = null;
+
+        // 事件委托处理器
+        document.addEventListener('click', function(e) {
+            const target = e.target;
+            const action = target.getAttribute('data-action');
+
+            if (!action) return;
+
+            console.log('🎯 检测到按钮点击:', action);
+
+            try {
+                switch (action) {
+                    case 'edit':
+                        const recordId = target.getAttribute('data-record-id');
+                        editRecord(parseInt(recordId));
+                        break;
+
+                    case 'delete':
+                        const deleteRecordId = target.getAttribute('data-record-id');
+                        deleteRecord(parseInt(deleteRecordId));
+                        break;
+
+                    case 'close-edit':
+                        closeEditModal();
+                        break;
+
+                    case 'close-quick-add':
+                        closeQuickAddModal();
+                        break;
+
+                    case 'add-position':
+                        const instrumentName = target.getAttribute('data-instrument');
+                        addPositionToDatabase(instrumentName);
+                        break;
+
+                    case 'add-order':
+                        const orderId = target.getAttribute('data-order-id');
+                        const orderInstrument = target.getAttribute('data-instrument');
+                        addOrderToDatabase(orderId, orderInstrument);
+                        break;
+
+                    default:
+                        console.log('⚠️ 未知的操作:', action);
+                }
+            } catch (error) {
+                console.error('❌ 执行操作失败:', error);
+                showError('操作失败: ' + error.message);
+            }
+        });
+
+        // 编辑表单提交处理
+        document.addEventListener('DOMContentLoaded', function() {
+            const editForm = document.getElementById('editForm');
+            if (editForm) {
+                editForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+
+                    if (!editingRecordId) {
+                        showError('没有选择要编辑的记录');
+                        return;
+                    }
+
+                    const formData = {
+                        target_delta: parseFloat(document.getElementById('editTargetDeltaValue').value),
+                        move_position_delta: parseFloat(document.getElementById('editMovePositionDeltaValue').value),
+                        min_expire_days: document.getElementById('editMinExpireDays').value ?
+                            parseInt(document.getElementById('editMinExpireDays').value) : null,
+                        tv_id: document.getElementById('editTvId').value ?
+                            parseInt(document.getElementById('editTvId').value) : null
+                    };
+
+                    try {
+                        const response = await fetch(`/api/delta/records/${editingRecordId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(formData)
+                        });
+
+                        const result = await response.json();
+
+                        if (!result.success) {
+                            throw new Error(result.message);
+                        }
+
+                        closeEditModal();
+                        showSuccess('记录更新成功');
+                        loadData();
+
+                    } catch (error) {
+                        console.error('❌ 更新记录失败:', error);
+                        showError('更新失败: ' + error.message);
+                    }
+                });
+            }
+
+            // 快速添加表单提交处理
+            const quickAddForm = document.getElementById('quickAddForm');
+            if (quickAddForm) {
+                quickAddForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+
+                    if (!window.currentQuickAdd) return;
+
+                    const targetDeltaInput = document.getElementById('quickTargetDeltaValue').value;
+                    const movePositionDeltaInput = document.getElementById('quickMovePositionDeltaValue').value;
+                    const tvIdInput = document.getElementById('quickTvId').value;
+                    const minExpireDaysInput = document.getElementById('quickMinExpireDays').value;
+
+                    // 验证必填字段
+                    if (!targetDeltaInput.trim()) {
+                        showError('请输入目标Delta值');
+                        return;
+                    }
+
+                    if (!movePositionDeltaInput.trim()) {
+                        showError('请输入移仓Delta值');
+                        return;
+                    }
+
+                    const targetDeltaValue = parseFloat(targetDeltaInput);
+                    const movePositionDeltaValue = parseFloat(movePositionDeltaInput);
+
+                    if (isNaN(targetDeltaValue) || targetDeltaValue < -1 || targetDeltaValue > 1) {
+                        showError('目标Delta值必须在-1到1之间');
+                        return;
+                    }
+
+                    if (isNaN(movePositionDeltaValue) || movePositionDeltaValue < -1 || movePositionDeltaValue > 1) {
+                        showError('移仓Delta值必须在-1到1之间');
+                        return;
+                    }
+
+                    let minExpireDaysValue = null;
+                    if (minExpireDaysInput.trim()) {
+                        minExpireDaysValue = parseInt(minExpireDaysInput);
+                        if (isNaN(minExpireDaysValue) || minExpireDaysValue <= 0) {
+                            showError('最小到期天数必须是大于0的整数');
+                            return;
+                        }
+                    }
+
+                    const tvId = tvIdInput.trim() ? parseInt(tvIdInput) : null;
+
+                    const formData = {
+                        account_id: currentAccount,
+                        instrument_name: window.currentQuickAdd.instrumentName,
+                        target_delta: targetDeltaValue,
+                        move_position_delta: movePositionDeltaValue,
+                        min_expire_days: minExpireDaysValue,
+                        tv_id: tvId,
+                        record_type: window.currentQuickAdd.recordType
+                    };
+
+                    if (window.currentQuickAdd.orderId) {
+                        formData.order_id = window.currentQuickAdd.orderId;
+                    }
+
+                    try {
+                        const response = await fetch('/api/delta/records', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(formData)
+                        });
+
+                        const result = await response.json();
+
+                        if (!result.success) {
+                            throw new Error(result.message);
+                        }
+
+                        const recordTypeText = window.currentQuickAdd.recordType === 'position' ? '仓位' : '订单';
+                        closeQuickAddModal();
+                        showSuccess(`${recordTypeText}已添加到数据库 (目标Delta: ${targetDeltaValue}, 移仓Delta: ${movePositionDeltaValue}, TV_ID: ${tvId})`);
+                        loadData();
+
+                    } catch (error) {
+                        showError('添加失败: ' + error.message);
+                    }
+                });
+            }
+        });
+
+        // 显示快速添加模态框 - 确保在全局作用域
+        window.showQuickAddModal = function(instrumentName, recordType, orderId = null) {
+            console.log('🔄 showQuickAddModal 被调用:', instrumentName, recordType, orderId);
+
+            try {
+                document.getElementById('quickInstrumentName').value = instrumentName;
+                document.getElementById('quickTargetDeltaValue').value = '';
+                document.getElementById('quickMovePositionDeltaValue').value = '';
+                document.getElementById('quickMinExpireDays').value = '';
+                document.getElementById('quickTvId').value = '';
+
+                const quickOrderIdGroup = document.getElementById('quickOrderIdGroup');
+                const quickTargetDeltaGroup = document.getElementById('quickTargetDeltaGroup');
+                const quickMovePositionDeltaGroup = document.getElementById('quickMovePositionDeltaGroup');
+                const quickTargetDeltaInput = document.getElementById('quickTargetDeltaValue');
+                const quickMovePositionDeltaInput = document.getElementById('quickMovePositionDeltaValue');
+
+                if (recordType === 'order') {
+                    // 订单记录：显示订单ID，显示目标Delta字段和移仓Delta字段
+                    quickOrderIdGroup.style.display = 'block';
+                    quickTargetDeltaGroup.style.display = 'block';
+                    quickMovePositionDeltaGroup.style.display = 'block';
+                    document.getElementById('quickOrderId').value = orderId || '';
+                    quickTargetDeltaInput.value = ''; // 订单目标Delta也需要用户输入
+                    quickMovePositionDeltaInput.value = ''; // 订单移仓Delta也需要用户输入
+                    quickTargetDeltaInput.required = true;
+                    quickMovePositionDeltaInput.required = true;
+
+                    document.getElementById('quickAddTitle').textContent = '添加订单到数据库';
+                } else {
+                    // 仓位记录：隐藏订单ID，显示目标Delta字段和移仓Delta字段
+                    quickOrderIdGroup.style.display = 'none';
+                    quickTargetDeltaGroup.style.display = 'block';
+                    quickMovePositionDeltaGroup.style.display = 'block';
+                    quickTargetDeltaInput.required = true;
+                    quickMovePositionDeltaInput.required = true;
+
+                    document.getElementById('quickAddTitle').textContent = '添加仓位到数据库';
+                }
+
+                // 存储当前操作信息
+                window.currentQuickAdd = {
+                    instrumentName: instrumentName,
+                    recordType: recordType,
+                    orderId: orderId
+                };
+
+                document.getElementById('quickAddModal').style.display = 'block';
+
+            } catch (error) {
+                console.error('❌ showQuickAddModal 错误:', error);
+                alert('显示添加界面失败: ' + error.message);
+            }
+        };
+
+        // 关闭快速添加模态框
+        function closeQuickAddModal() {
+            document.getElementById('quickAddModal').style.display = 'none';
+            window.currentQuickAdd = null;
+        }
+
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const editModal = document.getElementById('editModal');
+            const quickAddModal = document.getElementById('quickAddModal');
+
+            if (event.target === editModal) {
+                closeEditModal();
+            } else if (event.target === quickAddModal) {
+                closeQuickAddModal();
+            }
+        };
+    </script>
+
+    <!-- 快速添加模态框 -->
+    <div id="quickAddModal" class="modal">
+        <div class="modal-content">
+            <span class="close" data-action="close-quick-add">&times;</span>
+            <h2 id="quickAddTitle">添加到数据库</h2>
+            <form id="quickAddForm">
+                <div class="form-group">
+                    <label for="quickInstrumentName">合约名称:</label>
+                    <input type="text" id="quickInstrumentName" readonly style="background: #f5f5f5;">
+                </div>
+                <div class="form-group" id="quickTargetDeltaGroup">
+                    <label for="quickTargetDeltaValue">目标Delta值 <span style="color: red;">*</span>:</label>
+                    <input type="number" id="quickTargetDeltaValue" step="0.0001" min="-1" max="1" placeholder="请输入目标Delta值 (-1到1之间)" required>
+                    <small style="color: #666; font-size: 12px;">仓位和订单都需要设置目标Delta值</small>
+                </div>
+                <div class="form-group" id="quickMovePositionDeltaGroup">
+                    <label for="quickMovePositionDeltaValue">移仓Delta值 <span style="color: red;">*</span>:</label>
+                    <input type="number" id="quickMovePositionDeltaValue" step="0.0001" min="-1" max="1" placeholder="请输入移仓Delta值 (-1到1之间)" required>
+                    <small style="color: #666; font-size: 12px;">仓位和订单都需要设置移仓Delta值</small>
+                </div>
+                <div class="form-group">
+                    <label for="quickMinExpireDays">最小到期天数 (可留空):</label>
+                    <input type="number" id="quickMinExpireDays" min="1" step="1" placeholder="请输入最小到期天数 (大于0的整数，可留空)">
+                    <small style="color: #666; font-size: 12px;">用于期权选择的最小到期天数，留空表示不限制</small>
+                </div>
+                <div class="form-group">
+                    <label for="quickTvId">TV_ID (可留空):</label>
+                    <input type="number" id="quickTvId" placeholder="可选的TradingView信号ID">
+                </div>
+                <div class="form-group" id="quickOrderIdGroup" style="display: none;">
+                    <label for="quickOrderId">订单ID:</label>
+                    <input type="text" id="quickOrderId" readonly style="background: #f5f5f5;">
+                </div>
+                <div style="text-align: right; margin-top: 30px;">
+                    <button type="button" class="btn btn-danger" data-action="close-quick-add">取消</button>
+                    <button type="submit" class="btn btn-success">添加到数据库</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 编辑记录模态框 -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" data-action="close-edit">&times;</span>
+            <h2 id="editModalTitle">编辑记录</h2>
+            <form id="editForm">
+                <div class="form-group">
+                    <label for="editInstrumentName">合约名称:</label>
+                    <input type="text" id="editInstrumentName" readonly style="background: #f5f5f5;">
+                </div>
+                <div class="form-group" id="editTargetDeltaGroup">
+                    <label for="editTargetDeltaValue">目标Delta值:</label>
+                    <input type="number" id="editTargetDeltaValue" step="0.0001" min="-1" max="1" required>
+                </div>
+                <div class="form-group" id="editMovePositionDeltaGroup">
+                    <label for="editMovePositionDeltaValue">移仓Delta值:</label>
+                    <input type="number" id="editMovePositionDeltaValue" step="0.0001" min="-1" max="1" required>
+                </div>
+                <div class="form-group">
+                    <label for="editMinExpireDays">最小到期天数 (可留空):</label>
+                    <input type="number" id="editMinExpireDays" min="1" step="1" placeholder="留空表示不限制">
+                </div>
+                <div class="form-group">
+                    <label for="editTvId">TV_ID (可留空):</label>
+                    <input type="number" id="editTvId" placeholder="可选的TradingView信号ID">
+                </div>
+                <div class="form-group" id="editOrderIdGroup" style="display: none;">
+                    <label for="editOrderId">订单ID:</label>
+                    <input type="text" id="editOrderId" readonly style="background: #f5f5f5;">
+                </div>
+                <div style="text-align: right; margin-top: 30px;">
+                    <button type="button" class="btn btn-danger" data-action="close-edit">取消</button>
+                    <button type="submit" class="btn btn-success">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>&copy; 2024 Deribit Webhook Python - Delta Manager. Built with FastAPI and Python.</p>
+        <p>
+            <a href="/" target="_blank">返回首页</a> |
+            <a href="/docs" target="_blank">API文档</a> |
+            <a href="/redoc" target="_blank">ReDoc</a>
+        </p>
+    </footer>
+
+    <!-- 刷新按钮 -->
+    <button class="refresh-btn" onclick="refreshData()" title="刷新所有数据">
+        🔄
+    </button>
+    </div>
+</body>
+</html>

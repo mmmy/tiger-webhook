@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日志查询 - Deribit Webhook Python</title>
+    <link rel="stylesheet" href="/static/css/logs.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>📋 日志查询系统</h1>
+                <div class="header-actions">
+                    <button id="refresh-btn" class="btn btn-primary">🔄 刷新</button>
+                    <button id="export-btn" class="btn btn-secondary">📥 导出</button>
+                    <a href="/" class="btn btn-outline">🏠 返回首页</a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Search Filters -->
+        <div class="filters-section">
+            <div class="filters-grid">
+                <!-- Time Range -->
+                <div class="filter-group">
+                    <label for="time-range">时间范围</label>
+                    <select id="time-range" class="form-control">
+                        <option value="">全部时间</option>
+                        <option value="1h">最近1小时</option>
+                        <option value="6h">最近6小时</option>
+                        <option value="24h">最近24小时</option>
+                        <option value="7d">最近7天</option>
+                        <option value="custom" selected>自定义</option>
+                    </select>
+                </div>
+
+                <!-- Custom Time Range -->
+                <div id="custom-time-range" class="filter-group">
+                    <label>自定义时间</label>
+                    <div class="time-inputs">
+                        <input type="datetime-local" id="start-time" class="form-control">
+                        <span>至</span>
+                        <input type="datetime-local" id="end-time" class="form-control">
+                    </div>
+                </div>
+
+                <!-- Log Level -->
+                <div class="filter-group">
+                    <label for="log-level">日志级别</label>
+                    <select id="log-level" class="form-control">
+                        <option value="">全部级别</option>
+                        <option value="DEBUG">DEBUG</option>
+                        <option value="INFO">INFO</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="CRITICAL">CRITICAL</option>
+                    </select>
+                </div>
+
+                <!-- Search Text -->
+                <div class="filter-group">
+                    <label for="search-text">搜索内容</label>
+                    <input type="text" id="search-text" class="form-control" placeholder="搜索日志内容">
+                </div>
+
+                <!-- Actions -->
+                <div class="filter-group">
+                    <label>&nbsp;</label>
+                    <div class="filter-actions">
+                        <button id="search-btn" class="btn btn-primary">🔍 搜索</button>
+                        <button id="clear-btn" class="btn btn-outline">🗑️ 清空</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats-section">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-entries">-</div>
+                    <div class="stat-label">总条目数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="error-count">-</div>
+                    <div class="stat-label">错误数量</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="warning-count">-</div>
+                    <div class="stat-label">警告数量</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="file-size">-</div>
+                    <div class="stat-label">文件大小</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div class="results-section">
+            <div class="results-header">
+                <h3>📊 查询结果</h3>
+                <div class="results-info">
+                    <span id="results-count">0 条记录</span>
+                    <div class="pagination-controls">
+                        <button id="prev-page" class="btn btn-sm" disabled>← 上一页</button>
+                        <span id="page-info">第 1 页</span>
+                        <button id="next-page" class="btn btn-sm">下一页 →</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div id="loading" class="loading" style="display: none;">
+                <div class="loading-spinner"></div>
+                <span>正在查询日志...</span>
+            </div>
+
+            <!-- Log Entries -->
+            <div id="log-entries" class="log-entries">
+                <div class="no-results">
+                    <p>🔍 请使用上方的筛选条件查询日志</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination-section">
+            <div class="pagination-info">
+                <span>每页显示：</span>
+                <select id="page-size" class="form-control">
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                    <option value="500" selected>500</option>
+                </select>
+                <span>条记录</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Entry Detail Modal -->
+    <div id="log-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📋 日志详情</h3>
+                <button id="close-modal" class="btn btn-outline">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="log-detail-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/logs.js"></script>
+</body>
+</html>

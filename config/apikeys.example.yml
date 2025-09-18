@@ -1,0 +1,57 @@
+# Deribit API Keys Configuration
+# Copy this file to apikeys.yml and fill in your actual API credentials
+
+accounts:
+  # Primary trading account
+  - name: account_1
+    description: "Primary trading account"
+    # From Deribit API settings page - these are your OAuth 2.0 credentials
+    clientId: "your_client_id_here"          # Public identifier (from API settings)
+    clientSecret: "your_client_secret_here"  # Private secret key (keep confidential)
+    enabled: true
+
+    # Optional authentication settings
+    grantType: "client_credentials"  # client_credentials, client_signature, or refresh_token
+    scope: ""                        # Optional: specify access scopes if needed
+
+    # WeChat Bot configuration (optional)
+    wechat_bot:
+      webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your_bot_key_here"
+      timeout: 10000        # Request timeout in milliseconds (optional, default: 10000)
+      retry_count: 3        # Number of retry attempts (optional, default: 3)
+      retry_delay: 1000     # Delay between retries in milliseconds (optional, default: 1000)
+      enabled: true         # Whether to enable WeChat Bot for this account (optional, default: true)
+    
+  # Secondary trading account (disabled by default)
+  - name: account_2
+    description: "Secondary trading account"
+    clientId: "your_second_client_id_here"
+    clientSecret: "your_second_client_secret_here"
+    enabled: false
+    grantType: "client_credentials"
+    scope: ""
+
+    # WeChat Bot configuration (optional)
+    wechat_bot:
+      webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=your_second_bot_key_here"
+      enabled: false        # Disabled for this account
+    
+  # Production account example (commented out for safety)
+  # - name: production_account
+  #   description: "Production trading account"
+  #   clientId: "prod_client_id_here"
+  #   clientSecret: "prod_client_secret_here"
+  #   enabled: false
+  #   grantType: "client_credentials"
+  #   scope: ""
+
+# Global settings
+settings:
+  # Default connection timeout in seconds
+  connectionTimeout: 30
+  
+  # Reconnect attempts for WebSocket
+  maxReconnectAttempts: 5
+  
+  # Rate limiting (requests per minute)
+  rateLimitPerMinute: 60

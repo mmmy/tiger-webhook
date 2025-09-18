@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deribit Webhook Python - Dashboard</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🚀 Deribit Webhook Python</h1>
+            <p class="subtitle">Options Trading Microservice Dashboard</p>
+        </header>
+
+        <div class="status-grid">
+            <div class="status-card" id="service-status">
+                <h3>🔧 Service Status</h3>
+                <div class="status-indicator" id="status-indicator">
+                    <span class="status-dot loading"></span>
+                    <span id="status-text">Loading...</span>
+                </div>
+                <div class="status-details" id="status-details">
+                    <p><strong>Version:</strong> <span id="version">-</span></p>
+                    <p><strong>Environment:</strong> <span id="environment">-</span></p>
+                    <p><strong>Mock Mode:</strong> <span id="mock-mode">-</span></p>
+                </div>
+            </div>
+
+            <div class="status-card" id="accounts-status">
+                <h3>👥 Accounts</h3>
+                <div class="metric">
+                    <span class="metric-value" id="account-count">-</span>
+                    <span class="metric-label">Enabled Accounts</span>
+                </div>
+                <div class="account-list" id="account-list">
+                    <!-- Account list will be populated here -->
+                </div>
+            </div>
+
+            <div class="status-card" id="polling-status">
+                <h3>📊 Position Polling</h3>
+                <div class="status-indicator" id="polling-indicator">
+                    <span class="status-dot" id="polling-dot"></span>
+                    <span id="polling-text">Loading...</span>
+                </div>
+                <div class="polling-controls">
+                    <button id="start-polling" class="btn btn-success">Start Polling</button>
+                    <button id="stop-polling" class="btn btn-danger">Stop Polling</button>
+                    <button id="manual-poll" class="btn btn-primary">Manual Poll</button>
+                </div>
+            </div>
+
+            <div class="status-card" id="wechat-status">
+                <h3>💬 WeChat Bot</h3>
+                <div class="metric">
+                    <span class="metric-value" id="wechat-count">-</span>
+                    <span class="metric-label">Configured Bots</span>
+                </div>
+                <div class="wechat-controls">
+                    <button id="test-wechat" class="btn btn-info">Test All Bots</button>
+                </div>
+            </div>
+
+            <div class="status-card" id="delta-manager">
+                <h3>📊 Delta Manager</h3>
+                <div class="metric">
+                    <span class="metric-value">Delta</span>
+                    <span class="metric-label">Position & Order Management</span>
+                </div>
+                <div class="delta-controls">
+                    <a href="/delta" class="btn btn-primary" target="_blank">Open Delta Manager</a>
+                </div>
+            </div>
+
+            <div class="status-card" id="logs-manager">
+                <h3>📋 日志查询</h3>
+                <div class="metric">
+                    <span class="metric-value">Logs</span>
+                    <span class="metric-label">毫秒精度日志查询与分析</span>
+                </div>
+                <div class="delta-controls">
+                    <a href="/logs" class="btn btn-primary" target="_blank">打开日志查询</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="api-section">
+            <h2>🔗 API Endpoints</h2>
+            <div class="endpoint-grid">
+                <div class="endpoint-card">
+                    <h4>Health & Status</h4>
+                    <ul>
+                        <li><a href="/health" target="_blank">GET /health</a></li>
+                        <li><a href="/api/status" target="_blank">GET /api/status</a></li>
+                    </ul>
+                </div>
+                <div class="endpoint-card">
+                    <h4>Trading</h4>
+                    <ul>
+                        <li>POST /webhook/signal</li>
+                        <li>GET /api/trading/options</li>
+                        <li>POST /api/trading/execute</li>
+                    </ul>
+                </div>
+                <div class="endpoint-card">
+                    <h4>Positions</h4>
+                    <ul>
+                        <li>GET /api/positions/{account}</li>
+                        <li>GET /api/positions/polling/status</li>
+                        <li>POST /api/positions/polling/start</li>
+                    </ul>
+                </div>
+                <div class="endpoint-card">
+                    <h4>WeChat Bot</h4>
+                    <ul>
+                        <li>POST /api/wechat/test/{account}</li>
+                        <li>GET /api/wechat/configs</li>
+                        <li>POST /api/wechat/broadcast</li>
+                    </ul>
+                </div>
+                <div class="endpoint-card">
+                    <h4>Delta Management</h4>
+                    <ul>
+                        <li><a href="/delta" target="_blank">Delta Manager UI</a></li>
+                        <li>GET /api/delta/records</li>
+                        <li>GET /api/delta/stats</li>
+                        <li>GET /api/delta/summary</li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <h4>日志管理</h4>
+                    <ul>
+                        <li><a href="/logs" target="_blank">日志查询界面</a></li>
+                        <li>GET /api/logs/query</li>
+                        <li>GET /api/logs/stats</li>
+                        <li>GET /api/logs/files</li>
+                        <li>GET /api/logs/levels</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="logs-section">
+            <h2>📝 Recent Activity</h2>
+            <div class="logs-container" id="logs-container">
+                <p class="logs-placeholder">Activity logs will appear here...</p>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>&copy; 2024 Deribit Webhook Python. Built with FastAPI and Python.</p>
+            <p>
+                <a href="/docs" target="_blank">API Documentation</a> | 
+                <a href="/redoc" target="_blank">ReDoc</a> |
+                <a href="https://github.com/your-repo/deribit-webhook-python" target="_blank">GitHub</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
