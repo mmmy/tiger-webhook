@@ -161,7 +161,8 @@ class DeribitClient:
         except Exception as error:
             print(f"Failed to get option details for {instrument_name}: {error}")
             return None
-    
+    # todo: 实现一个新函数 get_all_positions(self, kind: str = "option")
+
     async def get_positions(self, account_name: str, currency: str = "BTC") -> List[Dict[str, Any]]:
         """
         Get positions for account

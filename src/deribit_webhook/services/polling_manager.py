@@ -9,15 +9,27 @@ import asyncio
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
+from pydantic import ValidationError
+
 from ..config import ConfigLoader, settings
 from .deribit_client import DeribitClient
 from .mock_deribit_client import MockDeribitClient
+from .position_adjustment import execute_position_adjustment, execute_position_close
+from .wechat_notification import WeChatNotificationService
 from ..database import get_delta_manager
-from ..database.types import DeltaRecordQuery, DeltaRecordType
+from ..database.types import (
+    DeltaRecordQuery,
+    DeltaRecordType,
+    CreateDeltaRecordInput,
+    DeltaRecord
+)
+from ..models.deribit_types import DeribitPosition
 
 
 class PollingManager:
     """Enhanced polling manager for positions and orders"""
+
+    OPTION_BASE_CURRENCIES = ("BTC", "ETH", "SOL", "USDC")
 
     def __init__(self):
         # Position polling state
@@ -40,6 +52,7 @@ class PollingManager:
         # Shared resources
         self._config_loader: Optional[ConfigLoader] = None
         self._delta_manager = None
+        self._wechat_service: Optional[WeChatNotificationService] = None
 
         # Backward compatibility aliases
         self.polling_task = None  # Will point to position_polling_task
@@ -58,6 +71,12 @@ class PollingManager:
         if self._delta_manager is None:
             self._delta_manager = get_delta_manager()
         return self._delta_manager
+
+    def _get_wechat_service(self) -> WeChatNotificationService:
+        """Get WeChat notification service"""
+        if self._wechat_service is None:
+            self._wechat_service = WeChatNotificationService()
+        return self._wechat_service
 
     async def start_polling(self):
         """Start position polling (and optionally order polling)"""
@@ -388,31 +407,346 @@ class PollingManager:
         summary: Optional[Dict[str, Any]]
     ):
         """Process polled positions"""
+        delta_manager = self._get_delta_manager()
+        config_loader = self._get_config_loader()
+        wechat_service = self._get_wechat_service()
+        roi_threshold = 0.85
+        option_positions: List[Dict[str, Any]] = []
+        total_delta = 0.0
+        action_client: Optional[Any] = None
+
         try:
-            # Calculate total delta
-            total_delta = 0.0
-            option_positions = []
-
+            # Aggregate option positions and total delta
             for position in positions:
-                if position.get("kind") == "option":
-                    delta = position.get("delta", 0.0)
-                    size = position.get("size", 0.0)
-                    position_delta = delta * size
-                    total_delta += position_delta
-                    option_positions.append(position)
+                if position.get("kind") != "option":
+                    continue
 
-            # Log position summary
+                delta_value = float(position.get("delta") or 0.0)
+                size_value = float(position.get("size") or 0.0)
+                total_delta += delta_value * size_value
+                option_positions.append(position)
+
             if option_positions:
-                print(f"📈 {account_name}: {len(option_positions)} option positions, total delta: {total_delta:.4f}")
+                print(f"?? {account_name}: {len(option_positions)} option positions, total delta: {total_delta:.4f}")
+            else:
+                if summary is not None:
+                    summary["option_position_count"] = 0
+                    summary["option_total_delta"] = 0.0
+                    summary["position_adjustments_triggered"] = 0
+                    summary["high_roi_positions_closed"] = 0
+                return
 
-            # todo: Here you could:
-            # 1. Update delta records in database
-            # 2. Check for position adjustments needed
-            # 3. Send notifications if thresholds exceeded
-            # 4. Log position changes
+            adjustment_count = 0
+            high_roi_count = 0
+
+            async def ensure_action_client():
+                nonlocal action_client
+                if action_client is None:
+                    action_client = MockDeribitClient() if settings.use_mock_mode else DeribitClient()
+                return action_client
+
+            for position in option_positions:
+                instrument_name = position.get("instrument_name")
+                if not instrument_name:
+                    continue
+
+                try:
+                    size = float(position.get("size") or 0.0)
+                    delta_value = float(position.get("delta") or 0.0)
+                    position_delta_per_unit = (delta_value / size) if size else 0.0
+
+                    latest_record = await self._ensure_position_record(
+                        delta_manager=delta_manager,
+                        account_name=account_name,
+                        instrument_name=instrument_name,
+                        observed_delta=position_delta_per_unit
+                    )
+
+                    if latest_record is not None:
+                        threshold_abs = max(
+                            abs(latest_record.target_delta or 0.0),
+                            abs(latest_record.move_position_delta or 0.0)
+                        )
+                        position_delta_abs = abs(position_delta_per_unit)
+
+                        if (
+                            latest_record.min_expire_days is not None
+                            and position_delta_abs > threshold_abs
+                        ):
+                            print(
+                                f"?? {account_name}: Delta threshold exceeded for {instrument_name} "
+                                f"(|{position_delta_per_unit:.4f}| > {threshold_abs:.4f})"
+                            )
+                            client = await ensure_action_client()
+                            adjustment_success = await self._trigger_position_adjustment(
+                                account_name=account_name,
+                                position_data=position,
+                                delta_record=latest_record,
+                                action_client=client,
+                                config_loader=config_loader,
+                                delta_manager=delta_manager,
+                                wechat_service=wechat_service
+                            )
+                            if adjustment_success:
+                                adjustment_count += 1
+
+                    average_price = position.get("average_price")
+                    mark_price = position.get("mark_price")
+                    direction = position.get("direction")
+
+                    if (
+                        direction == "sell"
+                        and average_price not in (None, 0)
+                        and mark_price is not None
+                    ):
+                        roi_value = -((mark_price - average_price) / average_price)
+                        if roi_value > roi_threshold:
+                            print(
+                                f"?? {account_name}: ROI threshold exceeded for {instrument_name} "
+                                f"({roi_value * 100:.2f}% > {roi_threshold * 100:.0f}%)"
+                            )
+                            client = await ensure_action_client()
+                            close_success = await self._close_high_roi_position(
+                                account_name=account_name,
+                                position_data=position,
+                                roi=roi_value,
+                                roi_threshold=roi_threshold,
+                                action_client=client,
+                                config_loader=config_loader,
+                                delta_manager=delta_manager,
+                                wechat_service=wechat_service,
+                                delta_record=latest_record
+                            )
+                            if close_success:
+                                high_roi_count += 1
+
+                except Exception as position_error:
+                    print(f"?? {account_name}: Failed to process position {instrument_name or 'unknown'}: {position_error}")
+
+            if summary is not None:
+                summary["option_position_count"] = len(option_positions)
+                summary["option_total_delta"] = total_delta
+                summary["position_adjustments_triggered"] = adjustment_count
+                summary["high_roi_positions_closed"] = high_roi_count
+
+            if adjustment_count or high_roi_count:
+                print(
+                    f"?? {account_name}: adjustments triggered={adjustment_count}, "
+                    f"high ROI closes={high_roi_count}"
+                )
 
         except Exception as error:
-            print(f"❌ Error processing positions for {account_name}: {error}")
+            print(f"? Error processing positions for {account_name}: {error}")
+
+        finally:
+            if action_client:
+                await action_client.close()
+
+    async def _ensure_position_record(
+        self,
+        delta_manager,
+        account_name: str,
+        instrument_name: str,
+        observed_delta: float
+    ) -> Optional[DeltaRecord]:
+        """Ensure delta record exists for the given instrument."""
+        position_query = DeltaRecordQuery(
+            account_id=account_name,
+            instrument_name=instrument_name,
+            record_type=DeltaRecordType.POSITION
+        )
+        position_records = await delta_manager.query_records(position_query, limit=1)
+        if position_records:
+            return position_records[0]
+
+        order_query = DeltaRecordQuery(
+            account_id=account_name,
+            instrument_name=instrument_name,
+            record_type=DeltaRecordType.ORDER
+        )
+        order_records = await delta_manager.query_records(order_query, limit=1)
+        source_record = order_records[0] if order_records else None
+
+        if source_record:
+            create_input = CreateDeltaRecordInput(
+                account_id=source_record.account_id,
+                instrument_name=source_record.instrument_name,
+                order_id=None,
+                target_delta=source_record.target_delta,
+                move_position_delta=source_record.move_position_delta,
+                min_expire_days=source_record.min_expire_days,
+                tv_id=source_record.tv_id,
+                action=source_record.action,
+                record_type=DeltaRecordType.POSITION
+            )
+        else:
+            create_input = CreateDeltaRecordInput(
+                account_id=account_name,
+                instrument_name=instrument_name,
+                order_id=None,
+                target_delta=observed_delta,
+                move_position_delta=observed_delta,
+                min_expire_days=None,
+                tv_id=None,
+                action=None,
+                record_type=DeltaRecordType.POSITION
+            )
+
+        try:
+            new_record = await delta_manager.create_record(create_input)
+            if source_record:
+                print(f"? {account_name}: Created position delta record from order for {instrument_name} (ID: {new_record.id})")
+            else:
+                print(f"?? {account_name}: Created inferred delta record for {instrument_name} (ID: {new_record.id})")
+            return new_record
+        except Exception as error:
+            print(f"? {account_name}: Failed to sync delta record for {instrument_name}: {error}")
+            fallback_records = await delta_manager.query_records(position_query, limit=1)
+            return fallback_records[0] if fallback_records else None
+
+    async def _trigger_position_adjustment(
+        self,
+        account_name: str,
+        position_data: Dict[str, Any],
+        delta_record: DeltaRecord,
+        action_client,
+        config_loader: ConfigLoader,
+        delta_manager,
+        wechat_service: WeChatNotificationService
+    ) -> bool:
+        request_id = f"adjust_{account_name}_{int(datetime.now().timestamp() * 1000)}"
+        try:
+            position_obj = DeribitPosition.model_validate(position_data)
+        except ValidationError as error:
+            print(f"? {account_name}: Position validation failed for adjustment: {error}")
+            return False
+
+        position_delta = float(position_data.get("delta") or 0.0)
+        size = float(position_data.get("size") or 0.0)
+        per_unit_delta = (position_delta / size) if size else 0.0
+
+        notification = (
+            "?? **Delta adjustment triggered**\n"
+            f"- Account: {account_name}\n"
+            f"- Instrument: {position_obj.instrument_name}\n"
+            f"- Position size: {position_obj.size}\n"
+            f"- Position delta: {position_delta:.4f}\n"
+            f"- Delta per unit: {per_unit_delta:.4f}\n"
+            f"- Target delta: {(delta_record.target_delta or 0.0):.4f}\n"
+            f"- Move delta: {(delta_record.move_position_delta or 0.0):.4f}\n"
+            f"- Record ID: {delta_record.id or 'N/A'}"
+        )
+        await wechat_service.send_custom_markdown(account_name, notification)
+
+        try:
+            result = await execute_position_adjustment(
+                request_id=request_id,
+                account_name=account_name,
+                current_position=position_obj,
+                delta_record=delta_record,
+                services={
+                    "config_loader": config_loader,
+                    "delta_manager": delta_manager,
+                    "deribit_client": action_client
+                }
+            )
+        except Exception as error:
+            print(f"? {account_name}: Adjustment failed for {position_obj.instrument_name}: {error}")
+            await wechat_service.send_custom_markdown(
+                account_name,
+                "?? **Delta adjustment failed**\n"
+                f"- Instrument: {position_obj.instrument_name}\n"
+                f"- Error: {error}"
+            )
+            return False
+
+        status_icon = "??" if result.success else "??"
+        result_lines = [
+            f"{status_icon} **Delta adjustment result**",
+            f"- Instrument: {position_obj.instrument_name}"
+        ]
+        if result.new_instrument:
+            result_lines.append(f"- New instrument: {result.new_instrument}")
+        if result.message:
+            result_lines.append(f"- Message: {result.message}")
+        if result.error:
+            result_lines.append(f"- Error: {result.error}")
+        await wechat_service.send_custom_markdown(account_name, "\n".join(result_lines))
+
+        print(
+            f"?? {account_name}: Delta adjustment {'success' if result.success else 'failed'} for {position_obj.instrument_name}"
+        )
+        return result.success
+
+    async def _close_high_roi_position(
+        self,
+        account_name: str,
+        position_data: Dict[str, Any],
+        roi: float,
+        roi_threshold: float,
+        action_client,
+        config_loader: ConfigLoader,
+        delta_manager,
+        wechat_service: WeChatNotificationService,
+        delta_record: Optional[DeltaRecord]
+    ) -> bool:
+        request_id = f"roi_{account_name}_{int(datetime.now().timestamp() * 1000)}"
+        try:
+            position_obj = DeribitPosition.model_validate(position_data)
+        except ValidationError as error:
+            print(f"? {account_name}: Position validation failed for ROI close: {error}")
+            return False
+
+        pre_lines = [
+            "?? **ROI close trigger**",
+            f"- Account: {account_name}",
+            f"- Instrument: {position_obj.instrument_name}",
+            f"- Direction: {position_obj.direction}",
+            f"- Position size: {position_obj.size}",
+            f"- ROI: {roi * 100:.2f}% (threshold {roi_threshold * 100:.0f}%)"
+        ]
+        if delta_record and delta_record.id:
+            pre_lines.append(f"- Record ID: {delta_record.id}")
+        await wechat_service.send_custom_markdown(account_name, "\n".join(pre_lines))
+
+        try:
+            close_result = await execute_position_close(
+                request_id=request_id,
+                account_name=account_name,
+                current_position=position_obj,
+                delta_record=None,
+                close_ratio=1.0,
+                is_market_order=False,
+                services={
+                    "config_loader": config_loader,
+                    "delta_manager": delta_manager,
+                    "deribit_client": action_client
+                }
+            )
+        except Exception as error:
+            print(f"? {account_name}: ROI close failed for {position_obj.instrument_name}: {error}")
+            await wechat_service.send_custom_markdown(
+                account_name,
+                "?? **ROI close failed**\n"
+                f"- Instrument: {position_obj.instrument_name}\n"
+                f"- Error: {error}"
+            )
+            return False
+
+        success = bool(close_result.get("success"))
+        result_lines = [
+            ("??" if success else "??") + " **ROI close result**",
+            f"- Instrument: {position_obj.instrument_name}",
+            f"- ROI: {roi * 100:.2f}%"
+        ]
+        if not success and close_result.get("error"):
+            result_lines.append(f"- Error: {close_result['error']}")
+        await wechat_service.send_custom_markdown(account_name, "\n".join(result_lines))
+
+        print(
+            f"?? {account_name}: ROI close {'success' if success else 'failed'} for {position_obj.instrument_name}"
+        )
+        return success
 
     async def poll_once(self) -> Dict[str, Any]:
         """Perform a single poll of all accounts"""
@@ -481,6 +815,6 @@ class PollingManager:
             "poll_count": self.position_poll_count,  # Alias for position poll count
         }
 
-
 # Global instance
 polling_manager = PollingManager()
+
