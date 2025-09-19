@@ -161,7 +161,6 @@ class DeribitClient:
         except Exception as error:
             print(f"Failed to get option details for {instrument_name}: {error}")
             return None
-    # todo: 实现一个新函数 get_all_positions(self, kind: str = "option")
 
     async def get_positions(self, account_name: str, currency: str = "BTC") -> List[Dict[str, Any]]:
         """
@@ -189,6 +188,34 @@ class DeribitClient:
             print(f"Failed to get positions for {account_name}: {error}")
             return []
     
+
+    async def get_all_positions(self, account_name: str, kind: str = "option") -> List[Dict[str, Any]]:
+        """Get all positions for an account, optionally filtered by kind."""
+        try:
+            await self._ensure_private_api(account_name)
+            if not self.private_api:
+                raise Exception("Private API not initialized")
+
+            params: Dict[str, Any] = {}
+            if kind:
+                params["kind"] = kind
+
+            positions = await self.private_api.get_positions(params or None)
+            if not positions:
+                return []
+
+            if kind:
+                positions = [pos for pos in positions if pos.get("kind") == kind]
+
+            for position in positions:
+                position.setdefault("account_name", account_name)
+
+            return positions
+
+        except Exception as error:
+            print(f"Failed to get all positions for {account_name}: {error}")
+            return []
+
     async def get_account_summary(self, account_name: str, currency: str = "BTC") -> Optional[Dict[str, Any]]:
         """
         Get account summary
