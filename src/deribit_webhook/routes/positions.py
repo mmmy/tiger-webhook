@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Depends
 from pydantic import BaseModel
 
 from ..config import ConfigLoader, settings
-from ..services import DeribitClient, MockDeribitClient
+from ..services import TigerClient, get_trading_client
 from ..services.polling_manager import polling_manager
 from ..middleware.account_validation import validate_account_from_params
 

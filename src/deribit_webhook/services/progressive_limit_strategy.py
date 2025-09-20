@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional
 
-from .deribit_client import DeribitClient
+from .tiger_client import TigerClient
 from ..utils.price_utils import round_to_tick_size
 
 
@@ -70,7 +70,7 @@ def _calculate_progressive_price(
 
 async def execute_progressive_limit_strategy(
     params: ProgressiveLimitParams,
-    deribit_client: DeribitClient,
+    tiger_client: TigerClient,
 ) -> ProgressiveLimitResult:
     """Execute progressive limit strategy similar to the Node.js implementation."""
 
@@ -81,11 +81,11 @@ async def execute_progressive_limit_strategy(
         await asyncio.sleep(max(params.step_timeout, 0.1))
         attempt_count = step
 
-        order_status = await deribit_client.get_order_state(params.account_name, params.order_id)
+        order_status = await tiger_client.get_order_state(params.account_name, params.order_id)
         if not order_status or order_status.get("order_state") != "open":
             break
 
-        option_details = await deribit_client.get_option_details(params.instrument_name)
+        option_details = await tiger_client.get_ticker(params.instrument_name)
         if not option_details:
             continue
 
@@ -105,7 +105,7 @@ async def execute_progressive_limit_strategy(
         new_price = round_to_tick_size(new_price, params.tick_size)
         amount = float(order_status.get("amount") or params.quantity)
 
-        edit_result = await deribit_client.edit_order(
+        edit_result = await tiger_client.edit_order(
             params.account_name,
             params.order_id,
             amount,
@@ -118,22 +118,22 @@ async def execute_progressive_limit_strategy(
         last_price = new_price
 
     # Final adjustment to best price if still open
-    final_status = await deribit_client.get_order_state(params.account_name, params.order_id)
+    final_status = await tiger_client.get_order_state(params.account_name, params.order_id)
     if final_status and final_status.get("order_state") == "open":
-        option_details = await deribit_client.get_option_details(params.instrument_name)
+        option_details = await tiger_client.get_ticker(params.instrument_name)
         if option_details:
             best_bid = option_details.best_bid_price or last_price
             best_ask = option_details.best_ask_price or last_price
             final_price = best_ask if params.direction == 'buy' else best_bid
             final_price = round_to_tick_size(final_price, params.tick_size)
             amount = float(final_status.get("amount") or params.quantity)
-            await deribit_client.edit_order(
+            await tiger_client.edit_order(
                 params.account_name,
                 params.order_id,
                 amount,
                 final_price,
             )
-            final_status = await deribit_client.get_order_state(params.account_name, params.order_id)
+            final_status = await tiger_client.get_order_state(params.account_name, params.order_id)
             last_price = final_price
 
     final_state = final_status.get("order_state") if final_status else None
@@ -147,7 +147,7 @@ async def execute_progressive_limit_strategy(
 
     # Collect light-weight position snapshot for observability
     try:
-        open_orders = await deribit_client.get_open_orders_by_instrument(
+        open_orders = await tiger_client.get_open_orders_by_instrument(
             params.account_name,
             params.instrument_name,
         )
@@ -156,7 +156,7 @@ async def execute_progressive_limit_strategy(
 
     try:
         currency = params.instrument_name.split('-')[0]
-        positions = await deribit_client.get_positions(params.account_name, currency=currency)
+        positions = await tiger_client.get_positions(params.account_name, currency=currency)
     except Exception:
         positions = []
 

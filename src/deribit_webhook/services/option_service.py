@@ -9,8 +9,8 @@ from ..config import ConfigLoader, settings
 from ..models.deribit_types import DeribitOptionInstrument, OptionListResult
 from ..models.trading_types import OptionListParams
 from .auth_service import AuthenticationService
-from .deribit_client import DeribitClient
-from .mock_deribit_client import MockDeribitClient
+from .tiger_client import TigerClient
+from .trading_client_factory import get_trading_client
 
 
 class OptionService:
@@ -20,19 +20,17 @@ class OptionService:
         self,
         config_loader: Optional[ConfigLoader] = None,
         auth_service: Optional[AuthenticationService] = None,
-        deribit_client: Optional[DeribitClient] = None,
-        mock_client: Optional[MockDeribitClient] = None
+        tiger_client: Optional[TigerClient] = None
     ):
         # Support dependency injection while maintaining backward compatibility
         self.config_loader = config_loader or ConfigLoader.get_instance()
         self.auth_service = auth_service or AuthenticationService.get_instance()
-        self.deribit_client = deribit_client or DeribitClient()
-        self.mock_client = mock_client or MockDeribitClient()
+        self.tiger_client = tiger_client or get_trading_client()
         self.use_mock_mode = settings.use_mock_mode
-    
+
     async def close(self):
         """Close service and cleanup resources"""
-        await self.deribit_client.close()
+        await self.tiger_client.close()
         await self.mock_client.close()
     
     async def get_options_list(
@@ -62,7 +60,7 @@ class OptionService:
                 instruments = mock_data
             else:
                 # Use real API data
-                real_data = await self.deribit_client.get_instruments(params.underlying, "option")
+                real_data = await self.tiger_client.get_instruments(params.underlying, "option")
                 instruments = real_data
             
             if not instruments:
@@ -220,7 +218,7 @@ class OptionService:
                 return 0.05
             
             # Get option details
-            option_details = await self.deribit_client.get_option_details(instrument_name)
+            option_details = await self.tiger_client.get_ticker(instrument_name)
             
             if not option_details:
                 return None

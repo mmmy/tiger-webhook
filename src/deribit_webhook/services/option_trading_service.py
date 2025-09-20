@@ -5,10 +5,11 @@ Handles TradingView webhook signals and executes option trades.
 """
 
 from typing import Optional, Dict, Any
-import asyncio
+
 import time
 
-from ..config import ConfigLoader, settings
+from ..config.config_loader import ConfigLoader
+from ..config.settings import settings
 from ..database import DeltaManager, get_delta_manager
 from ..models.webhook_types import WebhookSignalPayload
 from ..models.trading_types import (
@@ -18,8 +19,8 @@ from ..models.trading_types import (
     PlaceOptionOrderParams
 )
 from .auth_service import AuthenticationService
-from .deribit_client import DeribitClient
-from .mock_deribit_client import MockDeribitClient
+from .tiger_client import TigerClient
+from .trading_client_factory import get_trading_client, TradingClientFactory
 from .option_service import OptionService
 from .wechat_notification import wechat_notification_service, OrderNotificationPayload
 from .progressive_limit_strategy import ProgressiveLimitParams, execute_progressive_limit_strategy
@@ -35,23 +36,30 @@ class OptionTradingService:
         self,
         auth_service: Optional[AuthenticationService] = None,
         config_loader: Optional[ConfigLoader] = None,
-        deribit_client: Optional[DeribitClient] = None,
-        mock_client: Optional[MockDeribitClient] = None,
+        trading_client: Optional[TigerClient] = None,
         delta_manager: Optional[DeltaManager] = None,
         option_service: Optional[OptionService] = None
     ):
         # Support dependency injection while maintaining backward compatibility
         self.auth_service = auth_service or AuthenticationService.get_instance()
         self.config_loader = config_loader or ConfigLoader.get_instance()
-        self.deribit_client = deribit_client or DeribitClient()
-        self.mock_client = mock_client or MockDeribitClient()
+
+        # 使用工厂模式创建Tiger交易客户端
+        self.trading_client = trading_client or get_trading_client()
+
+        # 为了向后兼容，保留deribit_client属性
+        self.deribit_client = self.trading_client
+
         self.delta_manager = delta_manager or get_delta_manager()
         self.option_service = option_service or OptionService()
+
+        # 记录当前使用的broker类型
+        broker_type = TradingClientFactory.get_broker_type()
+        logger.info(f"🔧 OptionTradingService initialized with {broker_type} client")
     
     async def close(self):
         """Close service and cleanup resources"""
-        await self.deribit_client.close()
-        await self.mock_client.close()
+        await self.trading_client.close()
         await self.option_service.close()
     
     async def process_webhook_signal(self, payload: WebhookSignalPayload) -> OptionTradingResult:
@@ -382,7 +390,7 @@ class OptionTradingService:
         params: OptionTradingParams,
         payload: WebhookSignalPayload
     ) -> OptionTradingResult:
-        """Execute real option trading using Deribit API"""
+        """Execute real option trading using Tiger Brokers API"""
         try:
             print(f"🚀 Executing real option trade: {params.action}")
 
@@ -432,13 +440,12 @@ class OptionTradingService:
             print(f"🎯 Option selection: delta1={delta1} → {'call' if is_call else 'put'} option, "
                   f"action={params.action} → {actual_direction}")
 
-            # Get Deribit client
-            from .deribit_client import DeribitClient
-            deribit_client = DeribitClient()
+            # Use Tiger client
+            tiger_client = self.trading_client
 
             try:
                 # Find best option using delta
-                delta_result = await deribit_client.get_instrument_by_delta(
+                delta_result = await tiger_client.get_instrument_by_delta(
                     currency=currency,
                     min_expired_days=payload.n,
                     delta=payload.delta1,
@@ -469,7 +476,7 @@ class OptionTradingService:
                 return order_result
 
             finally:
-                await deribit_client.close()
+                await tiger_client.close()
 
         except Exception as error:
             print(f"❌ Failed to execute opening trade with delta: {error}")
@@ -514,13 +521,13 @@ class OptionTradingService:
         params: OptionTradingParams,
         payload: WebhookSignalPayload
     ) -> OptionTradingResult:
-        """Place a real option order on Deribit"""
+        """Place a real option order on Tiger Brokers"""
         try:
             print(f"?? Placing real order for instrument: {instrument_name}")
             print(f"?? Direction: {direction}, Quantity: {quantity}")
 
-            from .deribit_client import DeribitClient
-            deribit_client = DeribitClient()
+            # Use Tiger client
+            tiger_client = self.trading_client
 
             try:
                 entry_price = (delta_result.details.best_bid_price + delta_result.details.best_ask_price) / 2
@@ -567,7 +574,7 @@ class OptionTradingService:
                 if not is_reasonable:
                     print("?? Wide spread detected, using direct order")
                     order_result = await self._place_direct_order(
-                        deribit_client,
+                        tiger_client,
                         instrument_name,
                         direction,
                         final_quantity,
@@ -577,7 +584,7 @@ class OptionTradingService:
                 else:
                     print("?? Reasonable spread, using progressive strategy")
                     order_result = await self._place_progressive_order(
-                        deribit_client,
+                        tiger_client,
                         instrument_name,
                         direction,
                         final_quantity,
@@ -639,7 +646,7 @@ class OptionTradingService:
                 )
 
             finally:
-                await deribit_client.close()
+                await tiger_client.close()
 
         except Exception as error:
             print(f"? Failed to place real option order: {error}")
@@ -706,7 +713,7 @@ class OptionTradingService:
 
     async def _place_direct_order(
         self,
-        deribit_client,
+        tiger_client,
         instrument_name: str,
         direction: str,
         quantity: float,
@@ -716,7 +723,7 @@ class OptionTradingService:
         """Place a direct limit order"""
         try:
             if direction == 'buy':
-                response = await deribit_client.place_buy_order(
+                response = await tiger_client.place_buy_order(
                     instrument_name=instrument_name,
                     amount=quantity,
                     account_name=account_name,
@@ -724,7 +731,7 @@ class OptionTradingService:
                     price=price
                 )
             else:
-                response = await deribit_client.place_sell_order(
+                response = await tiger_client.place_sell_order(
                     instrument_name=instrument_name,
                     amount=quantity,
                     account_name=account_name,
@@ -748,7 +755,7 @@ class OptionTradingService:
 
     async def _place_progressive_order(
         self,
-        deribit_client,
+        tiger_client,
         instrument_name: str,
         direction: str,
         quantity: float,
@@ -761,7 +768,7 @@ class OptionTradingService:
             tick_size = getattr(delta_result.instrument, 'tick_size', 0.0001)
 
             initial_order = await self._place_direct_order(
-                deribit_client,
+                tiger_client,
                 instrument_name,
                 direction,
                 quantity,
@@ -786,7 +793,7 @@ class OptionTradingService:
 
             progressive_result = await execute_progressive_limit_strategy(
                 progressive_params,
-                deribit_client,
+                tiger_client,
             )
 
             order_result = progressive_result.to_order_result()

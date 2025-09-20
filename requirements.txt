@@ -49,3 +49,6 @@ mypy==1.7.1
 
 # Optional: For better performance
 orjson==3.9.10
+
+# Tiger Brokers Official SDK
+tigeropen>=2.0.0

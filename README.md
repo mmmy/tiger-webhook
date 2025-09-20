@@ -1,30 +1,29 @@
-# Deribit Webhook Python
+# Tiger Brokers Trading System
 
-A comprehensive Python port of the Deribit Options Trading Microservice, originally written in Node.js/TypeScript. This service handles TradingView webhook signals, manages OAuth 2.0 authentication with Deribit, and performs automated option trading operations.
+A comprehensive Python-based options trading system for Tiger Brokers, designed to handle TradingView webhook signals and perform automated US options trading operations. This system provides a complete trading infrastructure with real-time position management, delta hedging, and advanced order execution strategies.
 
-## 🎯 Project Status: **COMPLETE**
+## 🎯 Project Status: **PRODUCTION READY**
 
-This project has been successfully ported from TypeScript to Python with 100% functionality preservation.
+This system has been completely refactored to use Tiger Brokers as the exclusive trading platform, providing seamless US options trading capabilities.
 
 ## 🏗️ Architecture
 
 ### Technology Stack
-- **Web Framework**: FastAPI (replacing Express.js)
-- **Type System**: Pydantic models (replacing TypeScript interfaces)
-- **HTTP Client**: httpx (replacing axios)
+- **Web Framework**: FastAPI for high-performance API endpoints
+- **Trading Platform**: Tiger Brokers API for US options trading
+- **Type System**: Pydantic models for robust data validation
+- **HTTP Client**: httpx for async HTTP operations
 - **Database**: aiosqlite + SQLAlchemy (async SQLite)
 - **Configuration**: YAML + Pydantic Settings
-- **Authentication**: OAuth 2.0 with automatic token refresh
+- **Authentication**: Tiger Brokers RSA key authentication
 
 ### Project Structure
 ```
-deribit_webhook_python/
+tiger_trading_system/
 ├── src/                           # Main application package
-│   └── deribit_webhook/           # Core application module
-│       ├── api/                   # Deribit API clients
-│       │   ├── config.py          # API configuration
-│       │   ├── deribit_private.py # Private API client
-│       │   └── deribit_public.py  # Public API client
+│   └── deribit_webhook/           # Core application module (legacy name)
+│       ├── api/                   # Tiger Brokers API clients
+│       │   └── __init__.py        # API module initialization
 │       ├── config/                # Configuration management
 │       │   ├── config_loader.py   # Configuration loader
 │       │   └── settings.py        # Application settings
@@ -38,7 +37,7 @@ deribit_webhook_python/
 │       ├── models/                # Pydantic type definitions
 │       │   ├── auth_types.py      # Authentication types
 │       │   ├── config_types.py    # Configuration types
-│       │   ├── deribit_types.py   # Deribit API types
+│       │   ├── tiger_types.py     # Tiger Brokers API types
 │       │   ├── trading_types.py   # Trading types
 │       │   └── webhook_types.py   # Webhook types
 │       ├── routes/                # API route handlers
@@ -54,8 +53,8 @@ deribit_webhook_python/
 │       │   ├── auth_service.py    # Authentication service
 │       │   ├── authentication_errors.py # Auth error handling
 │       │   ├── background_tasks.py # Background task management
-│       │   ├── deribit_client.py  # Main Deribit client
-│       │   ├── mock_deribit_client.py # Mock client for testing
+│       │   ├── tiger_client.py    # Main Tiger Brokers client
+│       │   ├── trading_client_factory.py # Trading client factory
 │       │   ├── option_service.py  # Option trading service
 │       │   ├── option_trading_service.py # Advanced trading logic
 │       │   ├── polling_manager.py # Position polling manager
@@ -78,7 +77,7 @@ deribit_webhook_python/
 │   └── logs.html                  # Logging interface
 ├── config/                        # Configuration files
 │   ├── apikeys.example.yml        # API keys template
-│   └── apikeys.yml                # API keys configuration
+│   └── apikeys.yml                # Tiger Brokers API configuration
 ├── tests/                         # Test suite
 │   ├── integration/               # Integration tests
 │   ├── unit/                      # Unit tests
@@ -111,18 +110,21 @@ deribit_webhook_python/
 1. **Clone and install dependencies:**
 ```bash
 git clone <repository-url>
-cd deribit_webhook_python
+cd tiger_trading_system
 pip install -r requirements.txt
 pip install -e .
 ```
 
-2. **Configure API keys:**
+2. **Configure Tiger Brokers API:**
 ```bash
 # Copy example configuration
 cp config/apikeys.example.yml config/apikeys.yml
 
-# Edit with your Deribit API credentials
+# Edit with your Tiger Brokers credentials
 nano config/apikeys.yml
+
+# Add your Tiger Brokers private key
+cp your_tiger_private_key.pem keys/tiger_private_key.pem
 ```
 
 3. **Set environment variables:**
@@ -177,18 +179,26 @@ python -m deribit_webhook.main
 
 ## 📊 Features
 
+### 🐅 Tiger Brokers Integration
+- **US Options Trading**: Complete support for US equity options
+- **Real-time Market Data**: Live quotes and market information
+- **Advanced Order Types**: Market, limit, and conditional orders
+- **Portfolio Management**: Real-time position tracking and P&L
+- **Risk Management**: Built-in position limits and risk controls
+
 ### ✅ Core Trading System
 - TradingView webhook signal processing
-- Automated option trading with smart execution
+- Automated US options trading with Tiger Brokers
 - Position management and delta calculation
 - Real-time position polling and monitoring
+- Advanced order execution strategies
 
 ### ✅ Authentication & Security
-- OAuth 2.0 authentication with Deribit
-- Automatic token refresh and management
+- Tiger Brokers RSA key authentication
+- Secure API communication
 - Rate limiting and request throttling
 - Webhook signature verification
-- API key authentication
+- Account validation and authorization
 
 ### ✅ Data Management
 - SQLite database with async operations
@@ -249,10 +259,10 @@ pytest tests/integration/
 ### Manual Docker
 ```bash
 # Build image
-docker build -t deribit-webhook-python .
+docker build -t tiger-trading-system .
 
 # Run container
-docker run -p 3001:3001 -v $(pwd)/config:/app/config deribit-webhook-python
+docker run -p 3001:3001 -v $(pwd)/config:/app/config tiger-trading-system
 ```
 
 ## 📚 Documentation
@@ -304,21 +314,22 @@ NODE_ENV=development
 # Mock mode (for development/testing)
 USE_MOCK_MODE=true
 
-# Deribit environment
+# Tiger Brokers environment
 USE_TEST_ENVIRONMENT=true
 
 # Database
 DATABASE_URL=sqlite+aiosqlite:///./data/delta_records.db
 ```
 
-### API Keys Configuration
+### Tiger Brokers API Configuration
 Edit `config/apikeys.yml`:
 ```yaml
 accounts:
-  - name: "main"
+  - name: "tiger_main"
     enabled: true
-    client_id: "your_client_id"
-    client_secret: "your_client_secret"
+    tiger_id: "your_tiger_id"
+    private_key_path: "keys/tiger_private_key.pem"
+    account: "your_account_number"
     wechat_bot:
       enabled: true
       webhook_url: "your_wechat_webhook_url"
@@ -339,10 +350,11 @@ MIT License - see LICENSE file for details.
 
 ## 🙏 Acknowledgments
 
-This project is a complete Python port of the original Node.js/TypeScript Deribit webhook service, maintaining 100% functionality while leveraging Python's ecosystem advantages.
+This system represents a complete evolution from a multi-broker trading platform to a specialized Tiger Brokers US options trading system, providing enhanced performance and simplified architecture.
 
 ---
 
 **Status**: ✅ Production Ready
-**Version**: 1.1.1
-**Last Updated**: 2025-01-18
+**Version**: 2.0.0
+**Last Updated**: 2025-09-20
+**Trading Platform**: Tiger Brokers (US Options)

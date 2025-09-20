@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from pydantic import BaseModel
 
 from ..config import ConfigLoader, settings
-from ..services import DeribitClient, MockDeribitClient
+from ..services import TigerClient, get_trading_client
 from ..middleware.account_validation import validate_account_from_params
 from ..models.deribit_types import DeribitOptionInstrument
 
@@ -42,11 +42,8 @@ trading_router = APIRouter()
 
 
 def get_unified_client():
-    """Get unified client (mock or real based on settings)"""
-    if settings.use_mock_mode:
-        return MockDeribitClient(), True
-    else:
-        return DeribitClient(), False
+    """Get unified client"""
+    return get_trading_client(), settings.use_mock_mode
 
 
 @trading_router.get("/api/instruments", response_model=InstrumentsResponse)

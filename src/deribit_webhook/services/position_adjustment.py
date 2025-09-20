@@ -19,8 +19,8 @@ from ..models.trading_types import (
 )
 from ..models.deribit_types import DeribitPosition
 from .auth_service import AuthenticationService
-from .deribit_client import DeribitClient
-from .mock_deribit_client import MockDeribitClient
+from .tiger_client import TigerClient
+from .trading_client_factory import get_trading_client
 from ..utils.spread_calculation import (
     is_spread_reasonable,
     calculate_spread_ratio,

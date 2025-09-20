@@ -3,7 +3,7 @@ Configuration-related type definitions
 """
 
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class WeChatBotSettings(BaseModel):
@@ -16,17 +16,24 @@ class WeChatBotSettings(BaseModel):
 
 
 class ApiKeyConfig(BaseModel):
-    """API key configuration for a Deribit account"""
+    """Tiger Brokers API configuration"""
     name: str = Field(..., description="Account name")
     description: str = Field(..., description="Account description")
-    client_id: str = Field(..., alias="clientId", description="Deribit client ID")
-    client_secret: str = Field(..., alias="clientSecret", description="Deribit client secret")
     enabled: bool = Field(default=True, description="Whether account is enabled")
-    grant_type: Literal["client_credentials", "client_signature", "refresh_token"] = Field(
-        default="client_credentials", 
-        alias="grantType",
-        description="OAuth grant type"
-    )
+
+    # Tiger Brokers fields
+    tiger_id: str = Field(..., description="Tiger Brokers ID")
+    private_key_path: str = Field(..., description="Path to Tiger private key file")
+    account: str = Field(..., description="Tiger trading account number")
+    market: str = Field(default="US", description="Market type (US, HK, etc.)")
+
+    @model_validator(mode='after')
+    def validate_tiger_config(self):
+        """Validate Tiger configuration"""
+        if not self.tiger_id or not self.private_key_path or not self.account:
+            raise ValueError("Tiger configuration incomplete: tiger_id, private_key_path, and account are required")
+
+        return self
     scope: Optional[str] = Field(default=None, description="OAuth scope")
     wechat_bot: Optional[WeChatBotSettings] = Field(default=None, description="WeChat bot configuration")
     
@@ -44,10 +51,43 @@ class GlobalSettings(BaseModel):
         allow_population_by_field_name = True
 
 
-class DeribitConfig(BaseModel):
-    """Complete Deribit configuration"""
+class TigerEnvironmentConfig(BaseModel):
+    """Tiger Brokers环境配置"""
+    base_url: str = Field(..., description="API base URL")
+    socket_url: str = Field(..., description="WebSocket URL")
+
+
+class TigerGlobalConfig(BaseModel):
+    """Tiger Brokers全局配置"""
+    sandbox: TigerEnvironmentConfig = Field(..., description="沙盒环境配置")
+    production: TigerEnvironmentConfig = Field(..., description="生产环境配置")
+
+
+class AppGlobalConfig(BaseModel):
+    """应用全局配置"""
+    use_test_environment: bool = Field(default=True, description="是否使用测试环境")
+    use_mock_mode: bool = Field(default=False, description="是否使用模拟模式")
+
+
+class TigerConfig(BaseModel):
+    """完整的Tiger Brokers交易配置"""
     accounts: List[ApiKeyConfig] = Field(..., description="List of account configurations")
     settings: Optional[GlobalSettings] = Field(default_factory=GlobalSettings, description="Global settings")
+
+    # Tiger配置字段
+    global_config: Optional[AppGlobalConfig] = Field(None, alias="global", description="全局应用配置")
+    tiger_config: Optional[TigerGlobalConfig] = Field(None, description="Tiger Brokers配置")
+
+    @property
+    def use_test_environment(self) -> bool:
+        """是否使用测试环境"""
+        if self.global_config:
+            return self.global_config.use_test_environment
+        return True
+
+
+# 为了向后兼容，保留DeribitConfig别名
+DeribitConfig = TigerConfig
 
 
 class WeChatBotConfig(BaseModel):

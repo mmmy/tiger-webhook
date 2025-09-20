@@ -156,3 +156,5 @@ Thumbs.db
 
 .claude/**/*
 .env.production
+keys/**/*
+account

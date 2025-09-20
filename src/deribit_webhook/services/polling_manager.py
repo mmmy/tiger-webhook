@@ -12,8 +12,8 @@ from datetime import datetime, timedelta
 from pydantic import ValidationError
 
 from ..config import ConfigLoader, settings
-from .deribit_client import DeribitClient
-from .mock_deribit_client import MockDeribitClient
+from .tiger_client import TigerClient
+from .trading_client_factory import get_trading_client
 from .position_adjustment import execute_position_adjustment, execute_position_close
 from .wechat_notification import WeChatNotificationService
 from ..database import get_delta_manager
@@ -311,7 +311,7 @@ class PollingManager:
 
         print(f"?? {account_name}: Found {len(pending_records)} pending order records")
 
-        client = MockDeribitClient() if settings.use_mock_mode else DeribitClient()
+        client = get_trading_client()
         try:
             open_orders = await client.get_open_orders(
                 account_name,
@@ -378,11 +378,8 @@ class PollingManager:
     async def _poll_account(self, account_name: str):
         """Poll positions for a single account"""
         try:
-            # Get client (mock or real)
-            if settings.use_mock_mode:
-                client = MockDeribitClient()
-            else:
-                client = DeribitClient()
+            # Get client
+            client = get_trading_client()
 
             try:
                 # Get positions
@@ -441,7 +438,7 @@ class PollingManager:
             async def ensure_action_client():
                 nonlocal action_client
                 if action_client is None:
-                    action_client = MockDeribitClient() if settings.use_mock_mode else DeribitClient()
+                    action_client = get_trading_client()
                 return action_client
 
             for position in option_positions:
