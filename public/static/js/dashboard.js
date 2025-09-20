@@ -87,9 +87,13 @@ class Dashboard {
         accounts.forEach(account => {
             const accountItem = document.createElement('div');
             accountItem.className = 'account-item';
+            const isEnabled = account.enabled !== false;
+            const accountName = account.name;
             accountItem.innerHTML = `
-                <span>${account.name}</span>
-                <span class="account-status"></span>
+                <span class="account-name">
+                    <a href="/accounts/${encodeURIComponent(accountName)}" class="account-link">${accountName}</a>
+                </span>
+                <span class="account-status ${isEnabled ? 'enabled' : 'disabled'}">${isEnabled ? 'Enabled' : 'Disabled'}</span>
             `;
             accountList.appendChild(accountItem);
         });

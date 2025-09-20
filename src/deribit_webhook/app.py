@@ -21,7 +21,8 @@ from .routes import (
     delta_router,
     positions_router,
     wechat_router,
-    logs_router
+    logs_router,
+    accounts_router
 )
 
 PUBLIC_DIR = Path(__file__).resolve().parents[2] / "public"
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(positions_router, tags=["Positions"])
     app.include_router(wechat_router, tags=["WeChat Bot"])
     app.include_router(logs_router, tags=["Logs"])
+    app.include_router(accounts_router, tags=["Accounts"])
     
     @app.get("/")
     async def root():
@@ -101,6 +103,11 @@ def create_app() -> FastAPI:
     async def logs_page():
         """Logs query page"""
         return FileResponse(PUBLIC_DIR / "logs.html")
+
+    @app.get("/accounts/{account_name}")
+    async def account_detail_page(account_name: str):
+        """Account detail dashboard"""
+        return FileResponse(PUBLIC_DIR / "account-detail.html")
 
     @app.get("/api")
     async def api_info():

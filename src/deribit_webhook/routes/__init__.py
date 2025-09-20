@@ -12,6 +12,7 @@ from .delta import delta_router
 from .positions import positions_router
 from .wechat import wechat_router
 from .logs import logs_router
+from .accounts import accounts_router
 
 __all__ = [
     "health_router",
@@ -22,4 +23,5 @@ __all__ = [
     "positions_router",
     "wechat_router",
     "logs_router",
+    "accounts_router",
 ]

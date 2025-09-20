@@ -5,8 +5,9 @@ Tiger Brokers API客户端
 """
 
 import os
+import math
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from tigeropen.tiger_open_config import TigerOpenClientConfig
 from tigeropen.quote.quote_client import QuoteClient
@@ -16,6 +17,7 @@ from tigeropen.common.util.signature_utils import read_private_key
 from tigeropen.common.consts import Language, Market
 from tigeropen.common.util.contract_utils import option_contract, stock_contract
 from tigeropen.common.util.order_utils import market_order, limit_order
+from tigeropen.common.exceptions import ApiException
 
 from ..config.config_loader import ConfigLoader
 from ..config.settings import settings
@@ -327,13 +329,55 @@ class TigerClient:
         try:
             await self._ensure_clients(account_name)
 
-            # 获取持仓
-            positions = self.trade_client.get_positions(account=self.client_config.account)
+            raw_positions = self.trade_client.get_positions(account=self.client_config.account)
+            if raw_positions is None:
+                return []
 
-            # 转换为Deribit格式
+            records: List[Dict[str, Any]] = []
+
+            if hasattr(raw_positions, 'iterrows'):
+                for _, row in raw_positions.iterrows():
+                    if hasattr(row, 'to_dict'):
+                        records.append(row.to_dict())
+                    else:
+                        try:
+                            records.append(dict(row))
+                        except Exception:
+                            continue
+            elif isinstance(raw_positions, list):
+                for item in raw_positions:
+                    if hasattr(item, 'to_dict'):
+                        records.append(item.to_dict())
+                    elif isinstance(item, dict):
+                        records.append(item)
+                    else:
+                        try:
+                            records.append(dict(item))
+                        except Exception:
+                            continue
+            elif hasattr(raw_positions, 'to_dict'):
+                try:
+                    records = raw_positions.to_dict('records')  # type: ignore[arg-type]
+                except Exception:
+                    pass
+            elif isinstance(raw_positions, dict):
+                records = [raw_positions]
+
+            if not records and raw_positions is not None:
+                try:
+                    for item in raw_positions:  # type: ignore[arg-type]
+                        if hasattr(item, 'to_dict'):
+                            records.append(item.to_dict())
+                        elif isinstance(item, dict):
+                            records.append(item)
+                except Exception:
+                    pass
+
             deribit_positions = []
-            for _, position in positions.iterrows():
-                if position.get('sec_type') == 'OPT':  # 只返回期权持仓
+            for position in records:
+                if not isinstance(position, dict):
+                    continue
+                if position.get('sec_type') == 'OPT':  # 只处理期权持仓
                     deribit_position = self._convert_tiger_position_to_deribit(position)
                     if deribit_position:
                         deribit_positions.append(deribit_position)
@@ -341,7 +385,7 @@ class TigerClient:
             return deribit_positions
 
         except Exception as error:
-            print(f"❌ Failed to get positions: {error}")
+            print(f"? Failed to get positions: {error}")
             return []
 
     async def get_account_summary(self, account_name: str, currency: str = "USD") -> Dict[str, Any]:
@@ -379,6 +423,134 @@ class TigerClient:
             summary["total_mark_value"] += mark_price * size * contract_size
 
         return summary
+
+    async def get_account_assets(self, account_name: str) -> List[Dict[str, Any]]:
+        'Fetch Tiger account asset information.'
+        await self._ensure_clients(account_name)
+
+        if not self.trade_client or not self.client_config:
+            return []
+
+        try:
+            asset_accounts = self.trade_client.get_assets(
+                account=self.client_config.account,
+                market_value=True
+            )
+        except Exception as error:
+            print(f'? Failed to get account assets: {error}')
+            raise
+
+        if not asset_accounts:
+            return []
+
+        return [self._serialize_portfolio_account(asset) for asset in asset_accounts]
+
+    async def get_managed_accounts_info(self, account_name: str) -> List[Dict[str, Any]]:
+        'Fetch Tiger managed account profiles.'
+        await self._ensure_clients(account_name)
+
+        if not self.trade_client or not self.client_config:
+            return []
+
+        profiles = None
+        last_error: Optional[Exception] = None
+        for kwargs in ({'account': self.client_config.account}, {}):
+            try:
+                filtered_kwargs = {key: value for key, value in kwargs.items() if value}
+                profiles = self.trade_client.get_managed_accounts(**filtered_kwargs)
+                if profiles is not None:
+                    break
+            except ApiException as error:
+                last_error = error
+                print(f"? Failed to get managed accounts with params {kwargs}: {error}")
+            except Exception as error:
+                last_error = error
+                print(f"? Failed to get managed accounts with params {kwargs}: {error}")
+
+        if profiles is None:
+            if last_error is not None:
+                raise last_error
+            return []
+
+        if not profiles:
+            return []
+
+        managed_accounts: List[Dict[str, Any]] = []
+        for profile in profiles:
+            data = self._serialize_object(profile)
+            # Ensure core fields exist even if _serialize_object filtered them out
+            for attr in ('account', 'capability', 'status', 'account_type'):
+                value = getattr(profile, attr, None)
+                if attr not in data and value is not None:
+                    if attr == 'capability' and not isinstance(value, (list, tuple)):
+                        data[attr] = [value]
+                    else:
+                        data[attr] = value
+            if isinstance(data.get('capability'), tuple):
+                data['capability'] = list(data['capability'])
+            managed_accounts.append(data)
+
+        return managed_accounts
+
+    def _serialize_portfolio_account(self, asset: Any) -> Dict[str, Any]:
+        'Serialize Tiger PortfolioAccount into JSON-ready structure.'
+        if asset is None:
+            return {}
+
+        summary_data = self._serialize_object(getattr(asset, 'summary', None))
+
+        market_values_data = []
+        market_values = getattr(asset, 'market_values', None)
+        if market_values:
+            for currency, market_value in market_values.items():
+                mv_data = self._serialize_object(market_value)
+                if currency and not mv_data.get('currency'):
+                    mv_data['currency'] = currency
+                market_values_data.append(mv_data)
+
+        segments_data = []
+        segments = getattr(asset, 'segments', None)
+        if segments:
+            for segment_name, segment_obj in segments.items():
+                segment_data = self._serialize_object(segment_obj)
+                segment_data['segment'] = segment_name
+                segments_data.append(segment_data)
+
+        return {
+            'account': getattr(asset, 'account', None),
+            'summary': summary_data or None,
+            'market_values': market_values_data or None,
+            'segments': segments_data or None,
+        }
+
+    def _serialize_object(self, obj: Any) -> Dict[str, Any]:
+        'Convert Tiger SDK objects to JSON-safe dictionaries.'
+        if obj is None:
+            return {}
+
+        data: Dict[str, Any] = {}
+        for key, value in vars(obj).items():
+            normalized = self._normalize_value(value)
+            if normalized is not None:
+                data[key] = normalized
+        return data
+
+    @staticmethod
+    def _normalize_value(value: Any) -> Any:
+        'Normalize Tiger numeric/date values to JSON-safe primitives.'
+        if isinstance(value, (int, float)):
+            value = float(value)
+            if math.isfinite(value):
+                return value
+            return None
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if hasattr(value, 'isoformat'):
+            try:
+                return value.isoformat()
+            except Exception:  # pragma: no cover - defensive
+                return str(value)
+        return value
 
     def _convert_to_deribit_order_response(self, tiger_order: Any, instrument_name: str) -> DeribitOrderResponse:
         """转换Tiger订单响应为Deribit格式"""

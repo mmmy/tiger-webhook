@@ -1,0 +1,344 @@
+/* Account detail page styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #4158d0 0%, #c850c0 46%, #ffcc70 100%);
+    min-height: 100vh;
+    color: #1a202c;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.header {
+    text-align: center;
+    color: white;
+    margin-bottom: 36px;
+}
+
+.back-link {
+    display: inline-block;
+    margin-bottom: 16px;
+    color: rgba(255, 255, 255, 0.85);
+    text-decoration: none;
+    transition: opacity 0.2s ease;
+}
+
+.back-link:hover {
+    opacity: 0.7;
+}
+
+.header h1 {
+    font-size: 2.4rem;
+    margin-bottom: 8px;
+    text-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.subtitle {
+    font-size: 1.05rem;
+    opacity: 0.9;
+}
+
+.quick-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+}
+
+.stat-card {
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+    text-align: center;
+    backdrop-filter: blur(6px);
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.85rem;
+    color: #4a5568;
+    margin-bottom: 10px;
+    letter-spacing: 0.02em;
+}
+
+.stat-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #2d3748;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.info-card {
+    background: rgba(255, 255, 255, 0.92);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(8px);
+}
+
+.info-card h2 {
+    font-size: 1.2rem;
+    margin-bottom: 18px;
+    color: #2d3748;
+}
+
+.info-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.info-grid__content dl {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px 24px;
+}
+
+.info-grid__content dt {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #718096;
+    margin-bottom: 4px;
+}
+
+.info-grid__content dd {
+    font-size: 1rem;
+    color: #2d3748;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.placeholder {
+    color: #718096;
+    font-style: italic;
+}
+
+.btn {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 8px 18px rgba(102, 126, 234, 0.4);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px rgba(102, 126, 234, 0.45);
+}
+
+.positions-section {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
+    margin-bottom: 32px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+}
+
+.section-header h2 {
+    color: #2d3748;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.select {
+    border-radius: 8px;
+    padding: 8px 12px;
+    border: 1px solid rgba(113, 128, 150, 0.4);
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.table-wrapper {
+    overflow-x: auto;
+}
+
+.positions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+}
+
+.positions-table thead {
+    background: rgba(102, 126, 234, 0.1);
+}
+
+.positions-table th,
+.positions-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.positions-table tbody tr:hover {
+    background: rgba(237, 242, 247, 0.6);
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge.success {
+    background: rgba(72, 187, 120, 0.15);
+    color: #2f855a;
+}
+
+.badge.danger {
+    background: rgba(245, 101, 101, 0.18);
+    color: #c53030;
+}
+
+.badge.warning {
+    background: rgba(237, 137, 54, 0.18);
+    color: #dd6b20;
+}
+
+.errors-section {
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
+}
+
+.errors-section h2 {
+    margin-bottom: 12px;
+    color: #c53030;
+}
+
+#error-list li {
+    color: #c53030;
+    margin-bottom: 6px;
+}
+
+@media (max-width: 768px) {
+    .header h1 {
+        font-size: 1.8rem;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+}
+
+.summary-item {
+    background: rgba(237, 242, 247, 0.55);
+    border-radius: 12px;
+    padding: 12px;
+}
+
+.summary-label {
+    display: block;
+    font-size: 0.8rem;
+    color: #4a5568;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.summary-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #2d3748;
+}
+
+.summary-timestamp {
+    margin-top: 16px;
+    font-size: 0.85rem;
+    color: #4a5568;
+}
+
+.fatal-error {
+    max-width: 420px;
+    margin: 80px auto;
+    text-align: center;
+    background: white;
+    padding: 32px;
+    border-radius: 16px;
+    box-shadow: 0 16px 28px rgba(0, 0, 0, 0.18);
+}
+
+.stat-value[data-state="enabled"] {
+    color: #2f855a;
+}
+
+.stat-value[data-state="disabled"] {
+    color: #c53030;
+}
+
+.assets-summary {
+    margin-bottom: 16px;
+}
+
+.assets-market-values {
+    margin-top: 20px;
+}
+
+.assets-market-values h3 {
+    margin-bottom: 12px;
+    color: #2d3748;
+}
+
+.assets-table th,
+.assets-table td {
+    white-space: nowrap;
+}
+
+.managed-account-table th,
+.managed-account-table td {
+    white-space: nowrap;
+}

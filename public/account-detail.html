@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Detail</title>
+    <link rel="stylesheet" href="/static/css/account-detail.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <a class="back-link" href="/">&larr; Back to Dashboard</a>
+            <h1 id="account-name-heading">Account</h1>
+            <p class="subtitle" id="account-description">Loading account description...</p>
+        </header>
+
+        <section class="quick-stats" id="quick-stats">
+            <div class="stat-card">
+                <span class="stat-label">Status</span>
+                <span class="stat-value" id="account-status">-</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Market</span>
+                <span class="stat-value" id="account-market">-</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Account Number</span>
+                <span class="stat-value" id="account-number">-</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Mock Mode</span>
+                <span class="stat-value" id="mock-mode">-</span>
+            </div>
+        </section>
+
+        <section class="info-grid">
+            <div class="info-card">
+                <div class="info-card__header">
+                    <h2>Account Metadata</h2>
+                    <button id="refresh-button" class="btn btn-primary">Refresh</button>
+                </div>
+                <div class="info-grid__content">
+                    <dl>
+                        <div>
+                            <dt>Tiger ID</dt>
+                            <dd id="account-tiger-id">-</dd>
+                        </div>
+                        <div>
+                            <dt>Private Key Path</dt>
+                            <dd id="account-key-path">-</dd>
+                        </div>
+                        <div>
+                            <dt>User Token</dt>
+                            <dd id="account-token">-</dd>
+                        </div>
+                        <div>
+                            <dt>Tracking in Polling</dt>
+                            <dd id="polling-tracking">-</dd>
+                        </div>
+                        <div>
+                            <dt>Polling Interval</dt>
+                            <dd id="polling-interval">-</dd>
+                        </div>
+                        <div>
+                            <dt>Environment</dt>
+                            <dd id="environment-name">-</dd>
+                        </div>
+                        <div>
+                            <dt>Test Environment</dt>
+                            <dd id="test-environment">-</dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h2>WeChat Bot</h2>
+                <div id="wechat-section" class="info-grid__content">
+                    <p class="placeholder">Loading WeChat configuration...</p>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h2>Account Summary</h2>
+                <div id="summary-section" class="info-grid__content">
+                    <p class="placeholder">Loading account summary...</p>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h2>Asset Overview</h2>
+                <div id="assets-section" class="info-grid__content">
+                    <p class="placeholder">Loading asset information...</p>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h2>Managed Accounts</h2>
+                <div id="managed-section" class="info-grid__content">
+                    <p class="placeholder">Loading managed account details...</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="positions-section">
+            <div class="section-header">
+                <h2>Open Positions</h2>
+                <div class="controls">
+                    <label for="currency-select">Currency</label>
+                    <select id="currency-select" class="select">
+                        <option value="USD">USD</option>
+                        <option value="HKD">HKD</option>
+                        <option value="CNH">CNH</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-wrapper" id="positions-wrapper">
+                <p class="placeholder">Loading positions...</p>
+            </div>
+        </section>
+
+        <section class="errors-section" id="errors-section" hidden>
+            <h2>Warnings</h2>
+            <ul id="error-list"></ul>
+        </section>
+    </div>
+
+    <script src="/static/js/account-detail.js"></script>
+</body>
+</html>

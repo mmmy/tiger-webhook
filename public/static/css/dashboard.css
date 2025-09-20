@@ -342,3 +342,37 @@ body {
         width: 100%;
     }
 }
+
+.account-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(237, 242, 247, 0.6);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+}
+
+.account-link {
+    color: #2b6cb0;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.account-link:hover {
+    text-decoration: underline;
+}
+
+.account-status {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.account-status.enabled {
+    color: #2f855a;
+}
+
+.account-status.disabled {
+    color: #c53030;
+}
