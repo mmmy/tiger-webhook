@@ -78,6 +78,8 @@ class TigerClient:
             
             self.client_config.tiger_id = account.tiger_id
             self.client_config.account = account.account
+            if account.user_token:
+                self.client_config.token = account.user_token
             self.client_config.language = Language.en_US
             
             # 初始化客户端
@@ -88,84 +90,125 @@ class TigerClient:
             
             print(f"✅ Tiger clients initialized for account: {account_name}")
     
-    async def get_instruments(self, currency: str, kind: str = "option") -> List[Dict]:
-        """获取期权工具列表 - 映射Deribit的get_instruments"""
+    async def get_instruments(self, underlying_symbol: str, kind: str = "option") -> List[Dict]:
+        """获取期权工具列表 - 直接使用Tiger格式"""
         if kind != "option":
             raise ValueError("Tiger client only supports options")
-        
+
         try:
-            # 获取标的资产列表
-            symbols = self._get_underlying_symbols_for_currency(currency)
+            # 直接使用传入的标的符号，不进行货币映射
+            symbol = underlying_symbol.upper()
             all_options = []
-            
-            for symbol in symbols:
-                # 获取期权到期日
-                expirations = self.quote_client.get_option_expirations(symbols=[symbol])
-                
-                for _, expiry_row in expirations.iterrows():
-                    expiry_timestamp = int(expiry_row['timestamp'])
-                    
-                    # 获取期权链
-                    option_chain = self.quote_client.get_option_chain(symbol, expiry_timestamp)
-                    
-                    # 转换为Deribit格式
-                    for _, option in option_chain.iterrows():
-                        deribit_option = self._convert_tiger_option_to_deribit(option, symbol)
-                        all_options.append(deribit_option)
-            
+
+            print(f"   获取 {symbol} 的期权工具...")
+
+            # 获取期权到期日
+            expirations = self.quote_client.get_option_expirations(symbols=[symbol])
+
+            if expirations is None or len(expirations) == 0:
+                print(f"   ⚠️ 没有找到 {symbol} 的期权到期日")
+                return []
+
+            print(f"   找到 {len(expirations)} 个到期日")
+
+            for _, expiry_row in expirations.iterrows():
+                expiry_timestamp = int(expiry_row['timestamp'])
+                expiry_date = expiry_row.get('date', 'N/A')
+
+                print(f"   处理到期日: {expiry_date}")
+
+                # 获取期权链
+                option_chain = self.quote_client.get_option_chain(symbol, expiry_timestamp)
+
+                if option_chain is None or len(option_chain) == 0:
+                    print(f"   ⚠️ 到期日 {expiry_date} 没有期权数据")
+                    continue
+
+                # 直接使用Tiger格式，不转换
+                for _, option in option_chain.iterrows():
+                    tiger_option = self._convert_tiger_option_to_native(option, symbol)
+                    if tiger_option:
+                        all_options.append(tiger_option)
+
+            print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具")
             return all_options
-            
+
         except Exception as error:
             print(f"❌ Failed to get instruments: {error}")
             return []
     
     async def get_ticker(self, instrument_name: str) -> Optional[Dict]:
-        """获取期权报价 - 映射Deribit的ticker"""
+        """获取期权报价 - 直接使用Tiger格式"""
         try:
-            # 转换标识符
-            tiger_symbol = self.symbol_converter.deribit_to_tiger(instrument_name)
-            
+            # 直接使用Tiger格式的标识符
+            tiger_symbol = instrument_name
+
+            print(f"   获取期权报价: {tiger_symbol}")
+
             # 获取期权报价
             briefs = self.quote_client.get_option_briefs([tiger_symbol])
-            
-            if briefs.empty:
+
+            if briefs is None or len(briefs) == 0:
+                print(f"   ⚠️ 未获取到期权报价数据")
                 return None
-            
+
             option_data = briefs.iloc[0]
-            
-            # 转换为Deribit格式
-            return {
+
+            # 直接返回Tiger格式数据
+            ticker_data = {
                 "instrument_name": instrument_name,
-                "best_bid_price": float(option_data.get('bid', 0)),
-                "best_ask_price": float(option_data.get('ask', 0)),
-                "best_bid_amount": float(option_data.get('bid_size', 0)),
-                "best_ask_amount": float(option_data.get('ask_size', 0)),
-                "mark_price": float(option_data.get('latest_price', 0)),
-                "last_price": float(option_data.get('latest_price', 0)),
-                "mark_iv": float(option_data.get('implied_vol', 0)),
-                "index_price": float(option_data.get('underlying_price', 0)),
+                "symbol": tiger_symbol,
+                "best_bid_price": float(option_data.get('bid', 0) or 0),
+                "best_ask_price": float(option_data.get('ask', 0) or 0),
+                "best_bid_amount": float(option_data.get('bid_size', 0) or 0),
+                "best_ask_amount": float(option_data.get('ask_size', 0) or 0),
+                "mark_price": float(option_data.get('latest_price', 0) or 0),
+                "last_price": float(option_data.get('latest_price', 0) or 0),
+                "mark_iv": float(option_data.get('implied_vol', 0) or 0),
+                "index_price": float(option_data.get('underlying_price', 0) or 0),
+                "volume": float(option_data.get('volume', 0) or 0),
+                "open_interest": float(option_data.get('open_interest', 0) or 0),
                 "greeks": {
-                    "delta": float(option_data.get('delta', 0)),
-                    "gamma": float(option_data.get('gamma', 0)),
-                    "theta": float(option_data.get('theta', 0)),
-                    "vega": float(option_data.get('vega', 0))
-                }
+                    "delta": float(option_data.get('delta', 0) or 0),
+                    "gamma": float(option_data.get('gamma', 0) or 0),
+                    "theta": float(option_data.get('theta', 0) or 0),
+                    "vega": float(option_data.get('vega', 0) or 0)
+                },
+                "timestamp": int(datetime.now().timestamp() * 1000)
             }
-            
+
+            print(f"   ✅ 报价获取成功: 买价={ticker_data['best_bid_price']}, 卖价={ticker_data['best_ask_price']}")
+            return ticker_data
+
         except Exception as error:
             print(f"❌ Failed to get ticker for {instrument_name}: {error}")
             return None
     
-    def _get_underlying_symbols_for_currency(self, currency: str) -> List[str]:
-        """根据货币获取对应的标的资产"""
-        # 映射表：Deribit货币 -> Tiger标的资产
-        currency_mapping = {
-            "BTC": ["AAPL", "MSFT", "GOOGL"],
-            "ETH": ["TSLA", "NVDA", "META"],
-            "USD": ["SPY", "QQQ", "IWM"]
-        }
-        
-        return currency_mapping.get(currency, ["AAPL"])  # 默认返回AAPL
+    def _convert_tiger_option_to_native(self, tiger_option: Any, underlying: str) -> Dict:
+        """转换Tiger期权数据到原生格式（不转换为Deribit）"""
+        try:
+            # 直接使用Tiger的标识符
+            tiger_symbol = tiger_option.get('identifier', '')
+            if not tiger_symbol:
+                return None
+
+            return {
+                "instrument_name": tiger_symbol,
+                "symbol": tiger_symbol,
+                "underlying": underlying,
+                "kind": "option",
+                "option_type": tiger_option.get('right', '').lower(),
+                "strike": float(tiger_option.get('strike', 0) or 0),
+                "expiration_timestamp": int(tiger_option.get('expiry', 0) or 0),
+                "expiration_date": tiger_option.get('expiry_date', ''),
+                "tick_size": 0.01,
+                "min_trade_amount": 1,
+                "contract_size": 100,
+                "currency": "USD"
+            }
+        except Exception as error:
+            print(f"❌ Failed to convert Tiger option: {error}")
+            return None
     
     def _convert_tiger_option_to_deribit(self, tiger_option: Any, underlying: str) -> Dict:
         """转换Tiger期权数据到Deribit格式"""
@@ -202,8 +245,8 @@ class TigerClient:
         try:
             await self._ensure_clients(account_name)
 
-            # 转换期权标识符
-            tiger_symbol = self.symbol_converter.deribit_to_tiger(instrument_name)
+            # 直接使用Tiger格式标识符
+            tiger_symbol = instrument_name
 
             # 创建期权合约
             contract = option_contract(identifier=tiger_symbol)
@@ -246,8 +289,8 @@ class TigerClient:
         try:
             await self._ensure_clients(account_name)
 
-            # 转换期权标识符
-            tiger_symbol = self.symbol_converter.deribit_to_tiger(instrument_name)
+            # 直接使用Tiger格式标识符
+            tiger_symbol = instrument_name
 
             # 创建期权合约
             contract = option_contract(identifier=tiger_symbol)

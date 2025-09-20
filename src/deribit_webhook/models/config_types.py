@@ -26,6 +26,7 @@ class ApiKeyConfig(BaseModel):
     private_key_path: str = Field(..., description="Path to Tiger private key file")
     account: str = Field(..., description="Tiger trading account number")
     market: str = Field(default="US", description="Market type (US, HK, etc.)")
+    user_token: Optional[str] = Field(default=None, alias="userToken", description="Tiger user token for OpenAPI requests")
 
     @model_validator(mode='after')
     def validate_tiger_config(self):
