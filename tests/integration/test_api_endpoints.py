@@ -132,40 +132,33 @@ class TestTradingEndpoints:
 class TestPositionEndpoints:
     """Test position management endpoints."""
 
-    def test_get_positions_success(self, client: TestClient, mock_position_data):
+    def test_get_positions_success(self, client: TestClient):
         """Test successful position retrieval."""
-        with patch('deribit_webhook.api.deribit_private.DeribitPrivateAPI.get_positions', new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = mock_position_data
-            
-            response = client.get("/api/positions/test_account")
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data["success"] is True
-            assert len(data["positions"]) == 1
+        response = client.get("/api/positions/test_account/USD")
 
-    def test_get_positions_with_currency(self, client: TestClient, mock_position_data):
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert isinstance(data.get("positions"), list)
+
+    def test_get_positions_with_currency(self, client: TestClient):
         """Test position retrieval with currency parameter."""
-        with patch('deribit_webhook.api.deribit_private.DeribitPrivateAPI.get_positions', new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = mock_position_data
-            
-            response = client.get("/api/positions/test_account?currency=BTC")
-            
-            assert response.status_code == 200
-            mock_get.assert_called_with("test_account", "BTC")
+        response = client.get("/api/positions/test_account/BTC")
 
-    def test_calculate_delta_success(self, client: TestClient, mock_position_data):
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data.get("currency") == "BTC"
+
+    def test_calculate_delta_success(self, client: TestClient):
         """Test successful delta calculation."""
-        with patch('deribit_webhook.api.deribit_private.DeribitPrivateAPI.get_positions', new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = mock_position_data
-            
-            response = client.get("/api/positions/test_account/delta")
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data["success"] is True
-            assert "greeks" in data
-            assert "delta" in data["greeks"]
+        response = client.get("/api/positions/delta/test_account?currency=USD")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data.get("currency") == "USD"
+        assert "total_delta" in data
 
     def test_polling_status(self, client: TestClient):
         """Test polling status endpoint."""

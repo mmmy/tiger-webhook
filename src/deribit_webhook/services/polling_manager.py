@@ -382,9 +382,18 @@ class PollingManager:
             client = get_trading_client()
 
             try:
-                # Get positions
-                positions = await client.get_all_positions(account_name, kind="option")
-                summary = await client.get_account_summary(account_name, "BTC")
+                # Get positions across supported base currencies (Tiger uses USD by default)
+                positions: List[Dict[str, Any]] = []
+                for base_currency in self.OPTION_BASE_CURRENCIES:
+                    try:
+                        currency_positions = await client.get_positions(account_name, base_currency)
+                    except Exception as currency_error:
+                        print(f"? {account_name}: Failed to load positions for {base_currency}: {currency_error}")
+                        continue
+                    if currency_positions:
+                        positions.extend(currency_positions)
+
+                summary = await client.get_account_summary(account_name, "USD")
 
                 # Process positions
                 await self._process_positions(account_name, positions, summary)

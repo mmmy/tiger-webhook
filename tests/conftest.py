@@ -22,6 +22,7 @@ if str(SRC_PATH) not in sys.path:
 
 from src.deribit_webhook.app import create_app
 from src.deribit_webhook.config.config_loader import ConfigLoader
+from src.deribit_webhook.config.settings import settings
 from src.deribit_webhook.database.delta_manager import DeltaManager
 
 
@@ -47,12 +48,12 @@ def test_config_file(temp_dir: Path) -> Path:
 accounts:
   - name: test_account
     description: "Test account"
-    clientId: "test_client_id"
-    clientSecret: "test_client_secret"
     enabled: true
-    grantType: "client_credentials"
-    scope: ""
-    
+    tiger_id: "TID123456"
+    private_key_path: "keys/test_private_key.pem"
+    account: "DU123456"
+    market: "US"
+
     wechat_bot:
       webhook_url: "https://test.webhook.url"
       timeout: 5000
@@ -62,9 +63,11 @@ accounts:
 
   - name: disabled_account
     description: "Disabled test account"
-    clientId: "disabled_client_id"
-    clientSecret: "disabled_client_secret"
     enabled: false
+    tiger_id: "TID999999"
+    private_key_path: "keys/test_private_key.pem"
+    account: "DU000000"
+    market: "US"
 
 settings:
   connectionTimeout: 30
@@ -97,18 +100,37 @@ def test_env_vars(temp_dir: Path, test_config_file: Path) -> Generator[None, Non
     }
     
     os.environ.update(test_env)
-    
+
+    original_settings = {
+        "api_key_file": settings.api_key_file,
+        "database_url": settings.database_url,
+        "use_mock_mode": settings.use_mock_mode,
+        "use_test_environment": settings.use_test_environment,
+        "enable_position_polling": settings.enable_position_polling
+    }
+
+    settings.api_key_file = str(test_config_file)
+    settings.database_url = test_env["DATABASE_URL"]
+    settings.use_mock_mode = True
+    settings.use_test_environment = True
+    settings.enable_position_polling = False
+
     yield
-    
+
     # Restore original environment
     os.environ.clear()
     os.environ.update(original_env)
+
+    for key, value in original_settings.items():
+        setattr(settings, key, value)
 
 
 @pytest.fixture
 def config_loader(test_env_vars: None, test_config_file: Path) -> ConfigLoader:
     """Create a test configuration loader."""
-    return ConfigLoader()
+    loader = ConfigLoader.get_instance()
+    loader.reload_config()
+    return loader
 
 
 @pytest_asyncio.fixture
@@ -156,31 +178,26 @@ def mock_webhook_payload() -> dict:
 
 
 @pytest.fixture
-def mock_position_data() -> dict:
+def mock_position_data() -> list[dict]:
     """Create mock position data."""
-    return {
-        "result": [
-            {
-                "instrument_name": "BTC-25DEC21-50000-C",
-                "size": 1.0,
-                "mark_price": 0.05,
-                "delta": 0.5,
-                "gamma": 0.001,
-                "theta": -0.01,
-                "vega": 0.1,
-                "average_price": 0.048,
-                "floating_profit_loss": 20.0,
-                "realized_profit_loss": 0.0,
-                "total_profit_loss": 20.0,
-                "index_price": 50000.0,
-                "settlement_price": 0.049,
-                "direction": "buy",
-                "kind": "option",
-                "option_type": "call",
-                "strike": 50000
-            }
-        ]
-    }
+    return [
+        {
+            "instrument_name": "AAPL_20241220_200_C",
+            "size": 1.0,
+            "mark_price": 2.5,
+            "delta": 0.52,
+            "gamma": 0.08,
+            "theta": -0.03,
+            "vega": 0.12,
+            "average_price": 2.3,
+            "floating_profit_loss": 20.0,
+            "realized_profit_loss": 5.0,
+            "direction": "buy",
+            "kind": "option",
+            "option_type": "call",
+            "strike": 200.0
+        }
+    ]
 
 
 @pytest.fixture

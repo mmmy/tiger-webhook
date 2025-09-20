@@ -301,6 +301,42 @@ class TigerClient:
             print(f"❌ Failed to get positions: {error}")
             return []
 
+    async def get_account_summary(self, account_name: str, currency: str = "USD") -> Dict[str, Any]:
+        """构建Tiger账户汇总信息"""
+        await self._ensure_clients(account_name)
+
+        positions = await self.get_positions(account_name, currency)
+
+        summary: Dict[str, Any] = {
+            "account_name": account_name,
+            "account": getattr(self.client_config, 'account', account_name) if self.client_config else account_name,
+            "currency": currency,
+            "timestamp": datetime.utcnow().isoformat(),
+            "option_position_count": len(positions),
+            "option_total_delta": 0.0,
+            "option_total_gamma": 0.0,
+            "option_total_theta": 0.0,
+            "option_total_vega": 0.0,
+            "total_unrealized_pnl": 0.0,
+            "total_realized_pnl": 0.0,
+            "total_mark_value": 0.0
+        }
+
+        contract_size = 100.0
+
+        for position in positions:
+            size = float(position.get('size', 0.0))
+            mark_price = float(position.get('mark_price', 0.0))
+            summary["option_total_delta"] += float(position.get('delta', 0.0)) * size
+            summary["option_total_gamma"] += float(position.get('gamma', 0.0)) * size
+            summary["option_total_theta"] += float(position.get('theta', 0.0)) * size
+            summary["option_total_vega"] += float(position.get('vega', 0.0)) * size
+            summary["total_unrealized_pnl"] += float(position.get('floating_profit_loss', 0.0))
+            summary["total_realized_pnl"] += float(position.get('realized_profit_loss', 0.0))
+            summary["total_mark_value"] += mark_price * size * contract_size
+
+        return summary
+
     def _convert_to_deribit_order_response(self, tiger_order: Any, instrument_name: str) -> DeribitOrderResponse:
         """转换Tiger订单响应为Deribit格式"""
         try:

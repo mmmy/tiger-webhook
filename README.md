@@ -285,7 +285,7 @@ When running the service, visit:
 
 ### Trading
 - `POST /webhook/signal` - TradingView webhook endpoint
-- `GET /api/positions` - Get current positions
+- `GET /api/positions/{account}/{currency}` - Get current positions
 - `POST /api/positions/poll` - Manual position polling
 
 ### Authentication

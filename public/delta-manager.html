@@ -771,6 +771,7 @@
         let deltaRecords = [];
         let livePositions = [];
         let liveOrders = [];
+        const DEFAULT_POSITIONS_CURRENCY = 'USD';
         let validatedRecords = [];
 
         // 页面加载时初始化
@@ -871,7 +872,7 @@
         // 加载实时数据
         async function loadLiveData() {
             try {
-                const response = await fetch(`/api/positions/${currentAccount}/BTC`);
+                const response = await fetch(`/api/positions/${currentAccount}/${DEFAULT_POSITIONS_CURRENCY}`);
                 const data = await response.json();
 
                 if (data.success) {

@@ -160,39 +160,49 @@ Get available options for an account.
 
 ## Position Management Endpoints | 持仓管理端点
 
-### GET /api/positions/{account_name}
+### GET /api/positions/{account_name}/{currency}
 
-Get account positions.
+Retrieve Tiger Brokers account positions for a specific currency.
 
-获取账户持仓。
+获取 Tiger Brokers 账户的指定币种持仓信息。
 
 **Parameters | 参数:**
 - `account_name` (path): Account name | 账户名称
-- `currency` (query): Currency (default: BTC) | 货币（默认：BTC）
+- `currency` (path): Currency code (e.g. USD) | 币种（例如 USD）
 
 **Response:**
 ```json
 {
   "success": true,
-  "message": "Retrieved 5 positions for main_account",
-  "account_name": "main_account",
-  "currency": "BTC",
-  "mock_mode": true,
+  "message": "Retrieved 2 positions for tiger_main",
+  "account_name": "tiger_main",
+  "currency": "USD",
+  "mock_mode": false,
   "positions": [
     {
-      "instrument_name": "BTC-25DEC21-50000-C",
+      "instrument_name": "AAPL_20241220_200_C",
       "size": 1.0,
-      "mark_price": 0.05,
-      "delta": 0.5,
-      "gamma": 0.001,
-      "theta": -0.01,
-      "vega": 0.1
+      "mark_price": 2.5,
+      "delta": 0.52,
+      "gamma": 0.08,
+      "theta": -0.03,
+      "vega": 0.12,
+      "direction": "buy",
+      "kind": "option"
     }
   ],
   "summary": {
-    "total_pl": 100.0,
-    "session_rpl": 50.0,
-    "balance": 10000.0
+    "account": "XXXXXXXX",
+    "currency": "USD",
+    "option_position_count": 2,
+    "option_total_delta": 1.04,
+    "option_total_gamma": 0.16,
+    "option_total_theta": -0.06,
+    "option_total_vega": 0.24,
+    "total_unrealized_pnl": 25.0,
+    "total_realized_pnl": 10.0,
+    "total_mark_value": 25000.0,
+    "timestamp": "2024-01-01T12:00:00Z"
   }
 }
 ```

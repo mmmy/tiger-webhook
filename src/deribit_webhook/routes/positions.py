@@ -7,8 +7,8 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Path, Query, Depends
 from pydantic import BaseModel
 
-from ..config import ConfigLoader, settings
-from ..services import TigerClient, get_trading_client
+from ..config import settings
+from ..services import get_trading_client
 from ..services.polling_manager import polling_manager
 from ..middleware.account_validation import validate_account_from_params
 
@@ -37,11 +37,9 @@ positions_router = APIRouter()
 
 
 def get_unified_client():
-    """Get unified client (mock or real based on settings)"""
-    if settings.use_mock_mode:
-        return MockDeribitClient(), True
-    else:
-        return DeribitClient(), False
+    """Get Tiger trading client and mock mode flag."""
+    client = get_trading_client()
+    return client, settings.use_mock_mode
 
 
 @positions_router.get("/api/positions/polling/status", response_model=PollingStatusResponse)
@@ -68,13 +66,13 @@ async def get_polling_status():
         )
 
 
-@positions_router.get("/api/positions/{account_name}/{currency}", response_model=PositionsResponse)
-async def get_positions(
+@positions_router.get("/api/positions/delta/{account_name}")
+async def get_position_delta(
     account_name: str = Path(..., description="Account name"),
-    currency: str = Path(..., description="Currency"),
+    currency: str = Query(default="BTC", description="Currency"),
     validated_account=Depends(validate_account_from_params)
 ):
-    """Get account positions"""
+    """Get position delta summary"""
     try:
         currency_upper = currency.upper()
         
@@ -86,8 +84,84 @@ async def get_positions(
         
         try:
             positions = await client.get_positions(account_name, currency_upper)
-            summary = await client.get_account_summary(account_name, currency_upper)
             
+            # Calculate total delta from positions
+            total_delta = 0.0
+            total_gamma = 0.0
+            total_theta = 0.0
+            total_vega = 0.0
+            
+            for position in positions:
+                if position.get("kind") == "option":
+                    total_delta += position.get("delta", 0.0) * position.get("size", 0.0)
+                    total_gamma += position.get("gamma", 0.0) * position.get("size", 0.0)
+                    total_theta += position.get("theta", 0.0) * position.get("size", 0.0)
+                    total_vega += position.get("vega", 0.0) * position.get("size", 0.0)
+            
+            return {
+                "success": True,
+                "message": f"Position delta calculated for {account_name}",
+                "account_name": account_name,
+                "currency": currency_upper,
+                "mock_mode": is_mock,
+                "total_delta": total_delta,
+                "total_gamma": total_gamma,
+                "total_theta": total_theta,
+                "total_vega": total_vega,
+                "position_count": len(positions)
+            }
+        finally:
+            await client.close()
+            
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "message": str(error),
+                "account_name": account_name
+            }
+        )
+
+
+@positions_router.get("/api/positions/{account_name}/{currency}", response_model=PositionsResponse)
+async def get_positions(
+    account_name: str = Path(..., description="Account name"),
+    currency: str = Path(..., description="Currency"),
+    validated_account=Depends(validate_account_from_params)
+):
+    """Get account positions"""
+    try:
+        currency_upper = currency.upper()
+
+        client, is_mock = get_unified_client()
+        summary = None
+
+        try:
+            positions = await client.get_positions(account_name, currency_upper)
+
+            try:
+                summary = await client.get_account_summary(account_name, currency_upper)
+            except NotImplementedError:
+                summary = None
+            except Exception as summary_error:
+                try:
+                    from ..utils.logging_config import get_global_logger
+                except Exception:  # pragma: no cover - logging fallback
+                    logger = None
+                else:
+                    logger = get_global_logger()
+                if logger:
+                    logger.warning(
+                        "Failed to fetch account summary",
+                        error=str(summary_error),
+                        account=account_name,
+                        currency=currency_upper
+                    )
+                summary = None
+
             return PositionsResponse(
                 success=True,
                 message=f"Retrieved {len(positions)} positions for {account_name}",
@@ -99,7 +173,7 @@ async def get_positions(
             )
         finally:
             await client.close()
-            
+
     except HTTPException:
         raise
     except Exception as error:
@@ -187,61 +261,3 @@ async def manual_poll():
         )
 
 
-@positions_router.get("/api/positions/delta/{account_name}")
-async def get_position_delta(
-    account_name: str = Path(..., description="Account name"),
-    currency: str = Query(default="BTC", description="Currency"),
-    validated_account=Depends(validate_account_from_params)
-):
-    """Get position delta summary"""
-    try:
-        currency_upper = currency.upper()
-        
-        # Account validation is handled by dependency
-        # validated_account contains the validated account
-        
-        # Use unified client, automatically handles Mock/Real mode
-        client, is_mock = get_unified_client()
-        
-        try:
-            positions = await client.get_positions(account_name, currency_upper)
-            
-            # Calculate total delta from positions
-            total_delta = 0.0
-            total_gamma = 0.0
-            total_theta = 0.0
-            total_vega = 0.0
-            
-            for position in positions:
-                if position.get("kind") == "option":
-                    total_delta += position.get("delta", 0.0) * position.get("size", 0.0)
-                    total_gamma += position.get("gamma", 0.0) * position.get("size", 0.0)
-                    total_theta += position.get("theta", 0.0) * position.get("size", 0.0)
-                    total_vega += position.get("vega", 0.0) * position.get("size", 0.0)
-            
-            return {
-                "success": True,
-                "message": f"Position delta calculated for {account_name}",
-                "account_name": account_name,
-                "currency": currency_upper,
-                "mock_mode": is_mock,
-                "total_delta": total_delta,
-                "total_gamma": total_gamma,
-                "total_theta": total_theta,
-                "total_vega": total_vega,
-                "position_count": len(positions)
-            }
-        finally:
-            await client.close()
-            
-    except HTTPException:
-        raise
-    except Exception as error:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "success": False,
-                "message": str(error),
-                "account_name": account_name
-            }
-        )
