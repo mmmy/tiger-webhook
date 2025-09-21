@@ -43,6 +43,10 @@ class TigerClient:
         self.push_client: Optional[PushClient] = None
         self._current_account: Optional[str] = None
 
+        # 简单内存缓存：期权链，按标的缓存，TTL 秒
+        self._instruments_cache: Dict[str, Dict[str, Any]] = {}
+        self._instruments_cache_ttl_sec: int = 60
+
     async def close(self):
         """关闭所有客户端连接"""
         if self.push_client:
@@ -102,6 +106,15 @@ class TigerClient:
         try:
             # 直接使用传入的标的符号，不进行货币映射
             symbol = underlying_symbol.upper()
+
+            # 缓存命中则直接返回
+            cache = self._instruments_cache.get(symbol)
+            if cache:
+                ts = cache.get('ts'); items = cache.get('items')
+                if ts and (datetime.now().timestamp() - ts) < self._instruments_cache_ttl_sec:
+                    print(f"   ✅ 命中缓存的期权链: {symbol} (TTL {self._instruments_cache_ttl_sec}s)")
+                    return items or []
+
             all_options = []
 
             print(f"   获取 {symbol} 的期权工具...")
@@ -125,6 +138,7 @@ class TigerClient:
                 option_chain = self.quote_client.get_option_chain(symbol, expiry_timestamp)
 
                 if option_chain is None or len(option_chain) == 0:
+
                     print(f"   ⚠️ 到期日 {expiry_date} 没有期权数据")
                     continue
 
@@ -135,6 +149,11 @@ class TigerClient:
                         all_options.append(tiger_option)
 
             print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具")
+            # 写入缓存
+            self._instruments_cache[symbol] = {
+                'ts': datetime.now().timestamp(),
+                'items': all_options,
+            }
             return all_options
 
         except Exception as error:
@@ -181,6 +200,7 @@ class TigerClient:
                 "timestamp": int(datetime.now().timestamp() * 1000)
             }
 
+
             print(f"   ✅ 报价获取成功: 买价={ticker_data['best_bid_price']}, 卖价={ticker_data['best_ask_price']}")
             return ticker_data
 
@@ -194,9 +214,12 @@ class TigerClient:
         long_side: bool,
         underlying_asset: str
     ) -> Optional[SimpleNamespace]:
-        """Select an option instrument by approximate delta.
-        Minimal implementation: pick the first matching call/put with expiry >= min_expired_days
-        and provide quote details for order placement.
+        """Select an option instrument by target delta with better precision.
+        Strategy:
+        1) Filter by option type and min expiry
+        2) Prefer candidates with available delta, pick closest to |target|
+        3) If delta missing, narrow to strikes nearest to underlying and batch-fetch briefs to get delta
+        4) Return chosen instrument with latest bid/ask and computed spread
         """
         try:
             # Ensure quote client is initialized (use first enabled account if not set)
@@ -204,7 +227,7 @@ class TigerClient:
                 account = ConfigLoader.get_instance().get_enabled_accounts()[0]
                 await self._ensure_clients(account.name)
 
-            options = await self.get_instruments(underlying_asset, kind="option")
+            options = await self.get_instruments_min_days(underlying_asset, min_expired_days)
             if not options:
                 print(f"⚠️ No options returned for {underlying_asset}")
                 return None
@@ -213,35 +236,174 @@ class TigerClient:
             opt_type = "call" if long_side else "put"
             now_ms = int(datetime.now().timestamp() * 1000)
             min_expiry_ms = now_ms + int((min_expired_days or 0) * 24 * 3600 * 1000)
+            target_abs = abs(delta or 0)
+
+            def exp_ms(o):
+                ts = int(o.get("expiration_timestamp", 0) or 0)
+                return ts * 1000 if ts and ts < 10**12 else ts
 
             def is_match(o):
                 ov = (o.get("option_type") or "").lower()
                 ov_match = (ov in ("call", "c")) if long_side else (ov in ("put", "p"))
-                ts = int(o.get("expiration_timestamp", 0) or 0)
-                ts_ms = ts * 1000 if ts and ts < 10**12 else ts
-                return ov_match and ts_ms >= min_expiry_ms
+    async def get_instruments_min_days(self, underlying_symbol: str, min_expired_days: int, take_expirations: int = 3) -> List[Dict]:
+        """获取满足最小到期天数的有限期权链，减少接口调用以避免限流"""
+        symbol = underlying_symbol.upper()
+        try:
+            print(f"   获取 {symbol} 的期权工具（最少 {min_expired_days} 天, 取前 {take_expirations} 个到期）...")
+            expirations = self.quote_client.get_option_expirations(symbols=[symbol])
+            if expirations is None or len(expirations) == 0:
+                print(f"   ⚠️ 没有找到 {symbol} 的期权到期日")
+                return []
+
+            now_ms = int(datetime.now().timestamp() * 1000)
+            min_expiry_ms = now_ms + int((min_expired_days or 0) * 24 * 3600 * 1000)
+
+            # 选取符合条件的到期日，按时间升序
+            rows = []
+            for _, r in expirations.iterrows():
+                ts = int(r['timestamp'])
+                if ts >= min_expiry_ms:
+                    rows.append((ts, r.get('date', 'N/A')))
+            rows.sort(key=lambda x: x[0])
+            rows = rows[:max(1, int(take_expirations))]
+
+            all_options: List[Dict] = []
+            for ts, dstr in rows:
+                print(f"   处理到期日: {dstr}")
+                option_chain = self.quote_client.get_option_chain(symbol, ts)
+                if option_chain is None or len(option_chain) == 0:
+                    print(f"   ⚠️ 到期日 {dstr} 没有期权数据")
+                    continue
+                for _, option in option_chain.iterrows():
+                    tiger_option = self._convert_tiger_option_to_native(option, symbol)
+                    if tiger_option:
+                        all_options.append(tiger_option)
+
+            print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具 (受限模式)")
+            return all_options
+        except Exception as error:
+            print(f"❌ Failed to get instruments (min_days): {error}")
+            return []
+
+                return ov_match and exp_ms(o) >= min_expiry_ms
 
             candidates = [o for o in options if is_match(o)]
             if not candidates:
-                # fallback: ignore expiry filter
                 candidates = [o for o in options if (o.get("option_type") or "").lower() in (("call","c") if long_side else ("put","p"))]
             if not candidates:
                 return None
 
+            # Try to use delta from option chain directly
+            with_delta = [o for o in candidates if o.get('delta') is not None]
+
+            # Determine underlying price fallback from chain
+            underlying_px = None
+            for o in candidates:
+                if o.get('underlying_price') not in (None, ""):
+                    try:
+                        underlying_px = float(o.get('underlying_price'))
+                        break
+                    except Exception:
+                        pass
+
+            # Fallback: try to fetch underlying stock brief price if missing/zero
+            if (underlying_px is None) or (underlying_px <= 0):
+                try:
+                    sbriefs = self.quote_client.get_briefs([underlying_asset])
+                    if sbriefs is not None and len(sbriefs) > 0:
+                        srow = sbriefs.iloc[0]
+                        underlying_px = float(srow.get('latest_price', 0) or srow.get('close', 0) or 0)
+                except Exception as _e:
+                    pass
+
+            # If too many candidates or missing deltas, narrow by strike proximity
+            def strike(o):
+                try:
+                    return float(o.get('strike', 0) or 0)
+                except Exception:
+                    return 0.0
+
+            if underlying_px is not None and len(candidates) > 200:
+                candidates.sort(key=lambda o: abs(strike(o) - underlying_px))
+                candidates = candidates[:200]
+                with_delta = [o for o in candidates if o.get('delta') is not None]
+
+            # If still no delta info, batch fetch briefs for top N
+            if not with_delta:
+                idents = [ (o.get('instrument_name') or o.get('symbol')) for o in candidates[:50] ]
+                idents = [i for i in idents if i]
+                if idents:
+                    try:
+                        briefs = self.quote_client.get_option_briefs(idents)
+                        # Map in order (assumes API returns in same order)
+                        for idx, (_, row) in enumerate(briefs.iterrows()):
+                            if idx < len(candidates):
+                                try:
+                                    candidates[idx]['delta'] = float(row.get('delta', 0) or 0)
+                                    candidates[idx]['implied_vol'] = float(row.get('implied_vol', 0) or 0)
+                                    if underlying_px is None:
+                                        underlying_px = float(row.get('underlying_price', 0) or 0) or underlying_px
+                                except Exception:
+                                    pass
+                        with_delta = [o for o in candidates if o.get('delta') is not None]
+                    except Exception as _e:
+                        print(f"⚠️ Batch fetch briefs failed: {_e}")
+            # Theoretical delta fallback using Black-Scholes if delta still missing/zero
+            def _norm_cdf(x: float) -> float:
+                return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+            def _bs_delta(S: float, K: float, T: float, r: float, sigma: float, is_call: bool) -> Optional[float]:
+                try:
+                    if S <= 0 or K <= 0 or T <= 0 or sigma <= 0:
+                        return None
+                    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
+                    nd1 = _norm_cdf(d1)
+                    return nd1 if is_call else (nd1 - 1.0)
+                except Exception:
+                    return None
+            if underlying_px and underlying_px > 0:
+                r_rate = 0.02
+                for o in candidates:
+                    try:
+                        dval = o.get('delta')
+                        if dval is None or abs(float(dval)) < 1e-6:
+                            iv = o.get('implied_vol') or 0
+                            if iv and iv > 0:
+                                T = (exp_ms(o) - now_ms) / (365.0 * 24 * 3600 * 1000)
+                                if T and T > 0:
+                                    K = float(o.get('strike') or 0)
+                                    is_call = ((o.get('option_type') or '').lower() in ('call','c'))
+                                    td = _bs_delta(underlying_px, K, T, r_rate, float(iv), is_call)
+                                    if td is not None:
+                                        o['delta'] = td
+                    except Exception:
+                        pass
+
+
+            def score(o):
+                d = o.get('delta')
+                if d is None:
+                    # Fallback: use strike proximity if we have underlying price
+                    return abs(strike(o) - (underlying_px or strike(o))) + 1.0
+                try:
+                    return abs(abs(float(d)) - target_abs)
+                except Exception:
+                    return 1.0
+
+            # Pick best
+            candidates.sort(key=score)
             chosen = candidates[0]
+
             instrument_name = chosen.get("instrument_name") or chosen.get("symbol")
             ticker = await self.get_ticker(instrument_name)
             if not ticker:
-                # fabricate minimal details if no quote
                 best_bid = 0.01
                 best_ask = 0.02
-                index_price = 100.0
+                index_price = underlying_px or 100.0
             else:
                 best_bid = float(ticker.get("best_bid_price", 0) or 0)
                 best_ask = float(ticker.get("best_ask_price", 0) or 0)
-                index_price = float(ticker.get("index_price", 0) or 0)
+                index_price = float(ticker.get("index_price", 0) or (underlying_px or 0))
 
-            # Guard against zero ask to avoid downstream division-by-zero
             if best_ask <= 0:
                 best_ask = max(best_bid, 0.01)
 
@@ -317,7 +479,9 @@ class TigerClient:
                 "tick_size": 0.01,
                 "min_trade_amount": 1,
                 "contract_size": 100,
-                "currency": "USD"
+                "currency": "USD",
+                "delta": (float(tiger_option.get('delta', 0)) if tiger_option.get('delta') not in (None, "") else None),
+                "underlying_price": (float(tiger_option.get('underlying_price', 0)) if tiger_option.get('underlying_price') not in (None, "") else None)
             }
         except Exception as error:
             print(f"❌ Failed to convert Tiger option: {error}")
