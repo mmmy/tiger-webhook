@@ -27,12 +27,17 @@ class OptionService:
         self.auth_service = auth_service or AuthenticationService.get_instance()
         self.tiger_client = tiger_client or get_trading_client()
         self.use_mock_mode = settings.use_mock_mode
+        # Initialize mock client placeholder for safety; may be set externally when needed
+        self.mock_client: Optional[object] = None
 
     async def close(self):
         """Close service and cleanup resources"""
+        # Always try to close real client
         await self.tiger_client.close()
-        await self.mock_client.close()
-    
+        # Close mock client only if it exists
+        if hasattr(self, "mock_client") and self.mock_client and hasattr(self.mock_client, "close"):
+            await self.mock_client.close()
+
     async def get_options_list(
         self,
         params: OptionListParams,
@@ -40,29 +45,29 @@ class OptionService:
     ) -> OptionListResult:
         """
         Get options list
-        
+
         Args:
             params: Option list query parameters
             account_name: Optional account name for authentication
-            
+
         Returns:
             Option list query result
         """
         try:
             print(f"🔍 Getting options list for {params.underlying}, direction: {params.direction}")
-            
+
             # 1. Get raw options list
             instruments: List[DeribitOptionInstrument] = []
-            
-            if self.use_mock_mode:
-                # Use mock data
+
+            if self.use_mock_mode and self.mock_client:
+                # Use mock data when mock client is available
                 mock_data = await self.mock_client.get_instruments(params.underlying, "option")
                 instruments = mock_data
             else:
-                # Use real API data
+                # Use real API data (default)
                 real_data = await self.tiger_client.get_instruments(params.underlying, "option")
                 instruments = real_data
-            
+
             if not instruments:
                 return OptionListResult(
                     success=False,

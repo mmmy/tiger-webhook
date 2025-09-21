@@ -19,6 +19,8 @@ from tigeropen.common.util.contract_utils import option_contract, stock_contract
 from tigeropen.common.util.order_utils import market_order, limit_order
 from tigeropen.common.exceptions import ApiException
 
+from types import SimpleNamespace
+
 from ..config.config_loader import ConfigLoader
 from ..config.settings import settings
 from ..services.auth_service import AuthenticationService
@@ -28,25 +30,25 @@ from ..utils.symbol_converter import OptionSymbolConverter
 
 class TigerClient:
     """Tiger Brokers客户端，替换DeribitClient"""
-    
+
     def __init__(self):
         self.config_loader = ConfigLoader.get_instance()
         self.auth_service = AuthenticationService.get_instance()
         self.symbol_converter = OptionSymbolConverter()
-        
+
         # Tiger客户端配置
         self.client_config: Optional[TigerOpenClientConfig] = None
         self.quote_client: Optional[QuoteClient] = None
         self.trade_client: Optional[TradeClient] = None
         self.push_client: Optional[PushClient] = None
         self._current_account: Optional[str] = None
-    
+
     async def close(self):
         """关闭所有客户端连接"""
         if self.push_client:
             self.push_client.disconnect()
         # Tiger SDK的其他客户端不需要显式关闭
-    
+
     async def _ensure_clients(self, account_name: str):
         """确保客户端已初始化"""
         if self.client_config is None or self._current_account != account_name:
@@ -54,10 +56,10 @@ class TigerClient:
             account = self.config_loader.get_account_by_name(account_name)
             if not account:
                 raise Exception(f"Account not found: {account_name}")
-            
+
             if not account.tiger_id or not account.private_key_path or not account.account:
                 raise Exception(f"Tiger configuration incomplete for account: {account_name}")
-            
+
             # 创建Tiger配置
             config = self.config_loader.load_config()
             use_sandbox = config.use_test_environment if hasattr(config, 'use_test_environment') else settings.use_test_environment
@@ -66,7 +68,7 @@ class TigerClient:
             self.client_config = TigerOpenClientConfig(
                 sandbox_debug=False  # 设置为False避免deprecated警告
             )
-            
+
             # 读取私钥
             if os.path.exists(account.private_key_path):
                 self.client_config.private_key = read_private_key(account.private_key_path)
@@ -77,21 +79,21 @@ class TigerClient:
                     self.client_config.private_key = read_private_key(full_path)
                 else:
                     raise Exception(f"Private key file not found: {account.private_key_path}")
-            
+
             self.client_config.tiger_id = account.tiger_id
             self.client_config.account = account.account
             if account.user_token:
                 self.client_config.token = account.user_token
             self.client_config.language = Language.en_US
-            
+
             # 初始化客户端
             self.quote_client = QuoteClient(self.client_config)
             self.trade_client = TradeClient(self.client_config)
-            
+
             self._current_account = account_name
-            
+
             print(f"✅ Tiger clients initialized for account: {account_name}")
-    
+
     async def get_instruments(self, underlying_symbol: str, kind: str = "option") -> List[Dict]:
         """获取期权工具列表 - 直接使用Tiger格式"""
         if kind != "option":
@@ -138,7 +140,7 @@ class TigerClient:
         except Exception as error:
             print(f"❌ Failed to get instruments: {error}")
             return []
-    
+
     async def get_ticker(self, instrument_name: str) -> Optional[Dict]:
         """获取期权报价 - 直接使用Tiger格式"""
         try:
@@ -184,8 +186,92 @@ class TigerClient:
 
         except Exception as error:
             print(f"❌ Failed to get ticker for {instrument_name}: {error}")
+    async def get_instrument_by_delta(
+        self,
+        currency: str,
+        min_expired_days: int,
+        delta: float,
+        long_side: bool,
+        underlying_asset: str
+    ) -> Optional[SimpleNamespace]:
+        """Select an option instrument by approximate delta.
+        Minimal implementation: pick the first matching call/put with expiry >= min_expired_days
+        and provide quote details for order placement.
+        """
+        try:
+            # Ensure quote client is initialized (use first enabled account if not set)
+            if not hasattr(self, 'quote_client') or self.quote_client is None:
+                account = ConfigLoader.get_instance().get_enabled_accounts()[0]
+                await self._ensure_clients(account.name)
+
+            options = await self.get_instruments(underlying_asset, kind="option")
+            if not options:
+                print(f"⚠️ No options returned for {underlying_asset}")
+                return None
+            print(f"   候选期权数量: {len(options)}，示例类型: {[ (o.get('option_type'), o.get('expiration_timestamp')) for o in options[:3] ]}")
+
+            opt_type = "call" if long_side else "put"
+            now_ms = int(datetime.now().timestamp() * 1000)
+            min_expiry_ms = now_ms + int((min_expired_days or 0) * 24 * 3600 * 1000)
+
+            def is_match(o):
+                ov = (o.get("option_type") or "").lower()
+                ov_match = (ov in ("call", "c")) if long_side else (ov in ("put", "p"))
+                ts = int(o.get("expiration_timestamp", 0) or 0)
+                ts_ms = ts * 1000 if ts and ts < 10**12 else ts
+                return ov_match and ts_ms >= min_expiry_ms
+
+            candidates = [o for o in options if is_match(o)]
+            if not candidates:
+                # fallback: ignore expiry filter
+                candidates = [o for o in options if (o.get("option_type") or "").lower() in (("call","c") if long_side else ("put","p"))]
+            if not candidates:
+                return None
+
+            chosen = candidates[0]
+            instrument_name = chosen.get("instrument_name") or chosen.get("symbol")
+            ticker = await self.get_ticker(instrument_name)
+            if not ticker:
+                # fabricate minimal details if no quote
+                best_bid = 0.01
+                best_ask = 0.02
+                index_price = 100.0
+            else:
+                best_bid = float(ticker.get("best_bid_price", 0) or 0)
+                best_ask = float(ticker.get("best_ask_price", 0) or 0)
+                index_price = float(ticker.get("index_price", 0) or 0)
+
+            # Guard against zero ask to avoid downstream division-by-zero
+            if best_ask <= 0:
+                best_ask = max(best_bid, 0.01)
+
+            spread_ratio = ((best_ask - best_bid) / best_ask) if best_ask > 0 else 1.0
+
+            tick_size_val = chosen.get("tick_size", 0.01) or 0.01
+            instrument_ns = SimpleNamespace(
+                instrument_name=instrument_name,
+                tick_size=tick_size_val,
+                min_trade_amount=chosen.get("min_trade_amount", 1),
+                quote_currency=chosen.get("currency", "USD"),
+                settlement_currency=chosen.get("currency", "USD")
+            )
+            details_ns = SimpleNamespace(
+                best_bid_price=best_bid,
+                best_ask_price=best_ask,
+                index_price=index_price
+            )
+
+            return SimpleNamespace(
+                instrument=instrument_ns,
+                details=details_ns,
+                spread_ratio=spread_ratio
+            )
+        except Exception as e:
+            print(f"❌ get_instrument_by_delta failed: {e}")
             return None
-    
+
+            return None
+
     def _convert_tiger_option_to_native(self, tiger_option: Any, underlying: str) -> Dict:
         """转换Tiger期权数据到原生格式（不转换为Deribit）"""
         try:
@@ -194,14 +280,39 @@ class TigerClient:
             if not tiger_symbol:
                 return None
 
+            # 推断期权类型
+            right_val = (tiger_option.get('right')
+                         or tiger_option.get('put_call')
+                         or tiger_option.get('cp_flag')
+                         or tiger_option.get('option_right')
+                         or '')
+            opt = str(right_val).strip().lower()
+            if opt in ('c', 'call'):
+                opt = 'call'
+            elif opt in ('p', 'put'):
+                opt = 'put'
+            else:
+                ident = tiger_option.get('identifier', '')
+                last_token = ident.split()[-1] if ident else ''
+                if 'C' in last_token:
+                    opt = 'call'
+                elif 'P' in last_token:
+                    opt = 'put'
+                else:
+                    opt = ''
+
+            # 归一化到期时间为毫秒
+            expiry_raw = int(tiger_option.get('expiry', 0) or 0)
+            expiry_ms = expiry_raw * 1000 if expiry_raw and expiry_raw < 10**12 else expiry_raw
+
             return {
                 "instrument_name": tiger_symbol,
                 "symbol": tiger_symbol,
                 "underlying": underlying,
                 "kind": "option",
-                "option_type": tiger_option.get('right', '').lower(),
+                "option_type": opt,
                 "strike": float(tiger_option.get('strike', 0) or 0),
-                "expiration_timestamp": int(tiger_option.get('expiry', 0) or 0),
+                "expiration_timestamp": int(expiry_ms),
                 "expiration_date": tiger_option.get('expiry_date', ''),
                 "tick_size": 0.01,
                 "min_trade_amount": 1,
@@ -211,20 +322,43 @@ class TigerClient:
         except Exception as error:
             print(f"❌ Failed to convert Tiger option: {error}")
             return None
-    
+
     def _convert_tiger_option_to_deribit(self, tiger_option: Any, underlying: str) -> Dict:
         """转换Tiger期权数据到Deribit格式"""
         try:
             # 构造Deribit格式的标识符
             tiger_symbol = tiger_option.get('identifier', '')
             deribit_symbol = self.symbol_converter.tiger_to_deribit(tiger_symbol)
-            
+
+            # 推断期权类型
+            right_val = (tiger_option.get('right')
+                         or tiger_option.get('put_call')
+                         or tiger_option.get('cp_flag')
+                         or tiger_option.get('option_right')
+                         or '')
+            opt = str(right_val).strip().lower()
+            if opt in ('c', 'call'):
+                opt = 'call'
+            elif opt in ('p', 'put'):
+                opt = 'put'
+            else:
+                last_token = tiger_symbol.split()[-1] if tiger_symbol else ''
+                if 'C' in last_token:
+                    opt = 'call'
+                elif 'P' in last_token:
+                    opt = 'put'
+                else:
+                    opt = ''
+
+            expiry_raw = int(tiger_option.get('expiry', 0) or 0)
+            expiry_ms = expiry_raw * 1000 if expiry_raw and expiry_raw < 10**12 else expiry_raw
+
             return {
                 "instrument_name": deribit_symbol,
                 "kind": "option",
-                "option_type": tiger_option.get('right', '').lower(),
+                "option_type": opt,
                 "strike": float(tiger_option.get('strike', 0)),
-                "expiration_timestamp": int(tiger_option.get('expiry', 0)),
+                "expiration_timestamp": int(expiry_ms),
                 "tick_size": 0.01,  # Tiger期权最小价格变动
                 "min_trade_amount": 1,
                 "contract_size": 100,  # 美股期权合约大小
@@ -569,10 +703,7 @@ class TigerClient:
                 "last_update_timestamp": int(datetime.now().timestamp() * 1000)
             }
 
-            return DeribitOrderResponse({
-                "order": order_dict,
-                "trades": []
-            })
+            return SimpleNamespace(order=order_dict, trades=[])
 
         except Exception as error:
             print(f"❌ Failed to convert order response: {error}")

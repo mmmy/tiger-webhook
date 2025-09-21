@@ -508,8 +508,8 @@ class OptionTradingService:
             else:
                 return 'USDC', 'BTC'  # Default to BTC
         else:
-            # Default to BTC for unknown symbols
-            return 'BTC', 'BTC'
+            # Assume US equity/ETF symbol for Tiger Brokers
+            return 'USD', symbol_upper
 
     async def _place_real_option_order(
         self,

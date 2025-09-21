@@ -26,14 +26,15 @@ from .authentication_errors import (
 )
 
 
+
 class DeribitAuth:
     """Deribit OAuth 2.0 authentication service"""
-    
+
     def __init__(self):
         self.config_loader = ConfigLoader.get_instance()
         self.tokens: Dict[str, AuthToken] = {}
         self._client: Optional[httpx.AsyncClient] = None
-    
+
     @property
     def client(self) -> httpx.AsyncClient:
         """Get or create HTTP client"""
@@ -43,29 +44,29 @@ class DeribitAuth:
                 headers={"Content-Type": "application/json"}
             )
         return self._client
-    
+
     async def close(self):
         """Close HTTP client"""
         if self._client:
             await self._client.aclose()
             self._client = None
-    
+
     def _get_auth_url(self) -> str:
         """Get authentication URL based on environment"""
         base_url = self.config_loader.get_api_base_url()
         return f"{base_url}/public/auth"
-    
+
     async def _make_auth_request(self, params: dict) -> AuthResponse:
         """Make HTTP request to Deribit auth endpoint"""
         url = self._get_auth_url()
-        
+
         try:
             response = await self.client.get(url, params=params)
             response.raise_for_status()
-            
+
             data = response.json()
             return AuthResponse.model_validate(data)
-            
+
         except httpx.HTTPStatusError as e:
             if e.response.status_code >= 400:
                 try:
@@ -80,13 +81,13 @@ class DeribitAuth:
             raise AuthenticationError(f"HTTP Error: {e}", "unknown")
         except Exception as e:
             raise AuthenticationError(f"Request failed: {e}", "unknown")
-    
+
     def _is_token_valid(self, token: AuthToken) -> bool:
         """Check if a token is valid (not expired)"""
         # Add 5 seconds buffer before expiration
         current_time = int(time.time() * 1000)  # milliseconds
         return current_time < (token.expires_at - 5000)
-    
+
     async def _request_new_token(self, account: ApiKeyConfig) -> AuthToken:
         """Request a new access token from Deribit"""
         params = {
@@ -94,112 +95,112 @@ class DeribitAuth:
             "client_id": account.client_id,
             "client_secret": account.client_secret,
         }
-        
+
         # Add scope if specified
         if account.scope and account.scope.strip():
             params["scope"] = account.scope
-        
+
         try:
             response = await self._make_auth_request(params)
-            
+
             if not response.result or not response.result.access_token:
                 raise AuthenticationError("Invalid response: No access token received", account.name)
-            
+
             result = response.result
             expires_at = int(time.time() * 1000) + (result.expires_in * 1000)
-            
+
             return AuthToken(
                 access_token=result.access_token,
                 refresh_token=result.refresh_token,
                 expires_at=expires_at,
                 scope=result.scope
             )
-            
+
         except AuthenticationError:
             raise
         except Exception as e:
             raise AuthenticationError(f"Token request failed: {e}", account.name)
-    
+
     async def authenticate(self, account_name: str) -> AuthToken:
         """Authenticate with Deribit API using OAuth 2.0 client credentials flow"""
         # Validate account exists
         account = self.config_loader.get_account_by_name(account_name)
         if not account:
             raise AuthenticationError(f"Account not found: {account_name}", account_name)
-        
+
         if not account.enabled:
             raise AuthenticationError(f"Account disabled: {account_name}", account_name)
-        
+
         # Check if we have a valid cached token
         cached_token = self.tokens.get(account_name)
         if cached_token and self._is_token_valid(cached_token):
             return cached_token
-        
+
         # Get new token from Deribit
         token = await self._request_new_token(account)
         self.tokens[account_name] = token
-        
+
         return token
-    
+
     async def refresh_token(self, account_name: str) -> AuthToken:
         """Refresh an access token using refresh token"""
         # Validate account exists
         account = self.config_loader.get_account_by_name(account_name)
         if not account:
             raise AuthenticationError(f"Account not found: {account_name}", account_name)
-        
+
         cached_token = self.tokens.get(account_name)
         if not cached_token or not cached_token.refresh_token:
             raise TokenNotFoundError(account_name)
-        
+
         params = {
             "grant_type": "refresh_token",
             "refresh_token": cached_token.refresh_token,
         }
-        
+
         try:
             response = await self._make_auth_request(params)
             result = response.result
             expires_at = int(time.time() * 1000) + (result.expires_in * 1000)
-            
+
             new_token = AuthToken(
                 access_token=result.access_token,
                 refresh_token=result.refresh_token,
                 expires_at=expires_at,
                 scope=result.scope
             )
-            
+
             self.tokens[account_name] = new_token
             return new_token
-            
+
         except Exception:
             # If refresh fails, clear the cached token and re-authenticate
             self.tokens.pop(account_name, None)
             return await self.authenticate(account_name)
-    
+
     async def get_valid_token(self, account_name: str) -> str:
         """Get a valid access token for an account"""
         token = await self.authenticate(account_name)
-        
+
         # If token is about to expire, refresh it
         if not self._is_token_valid(token):
             refreshed_token = await self.refresh_token(account_name)
             return refreshed_token.access_token
-        
+
         return token.access_token
-    
+
     def clear_token(self, account_name: str) -> None:
         """Clear cached token for an account"""
         self.tokens.pop(account_name, None)
-    
+
     def clear_all_tokens(self) -> None:
         """Clear all cached tokens"""
         self.tokens.clear()
-    
+
     def get_token_info(self, account_name: str) -> Optional[AuthToken]:
         """Get token info for an account"""
         return self.tokens.get(account_name)
-    
+
     async def test_connection(self, account_name: Optional[str] = None) -> bool:
         """Test connection with Deribit API"""
         try:
@@ -208,16 +209,16 @@ class DeribitAuth:
                 accounts = [acc for acc in accounts if acc is not None]
             else:
                 accounts = self.config_loader.get_enabled_accounts()
-            
+
             if not accounts:
                 raise AuthenticationError("No enabled accounts found", "unknown")
-            
+
             # Test first enabled account
             account = accounts[0]
-            
+
             # Test authentication
             await self.authenticate(account.name)
-            
+
             return True
 
         except Exception as e:
@@ -286,6 +287,18 @@ class AuthenticationService:
                 )
 
             # 3. Real mode authentication
+            # If current broker is Tiger, use SDK credentials and skip Deribit OAuth
+            from .trading_client_factory import TradingClientFactory
+            broker_type = TradingClientFactory.get_broker_type()
+            if broker_type == 'tiger':
+                print(f"✅ Tiger broker - using SDK credentials, skipping Deribit OAuth for account: {account_name}")
+                return AuthenticationResult(
+                    success=True,
+                    token=None,
+                    account=account,
+                    is_mock=False
+                )
+
             print(f"🔐 Authenticating account: {account_name}")
             token = await self.deribit_auth.authenticate(account_name)
 
