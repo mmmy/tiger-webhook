@@ -46,6 +46,10 @@ class TigerClient:
         # 简单内存缓存：期权链，按标的缓存，TTL 秒
         self._instruments_cache: Dict[str, Dict[str, Any]] = {}
         self._instruments_cache_ttl_sec: int = 60
+        self._expirations_cache: Dict[str, Dict[str, Any]] = {}
+        self._expirations_cache_ttl_sec: int = 60
+        self._underlyings_cache: Dict[str, Dict[str, Any]] = {}
+        self._underlyings_cache_ttl_sec: int = 300
 
     async def close(self):
         """关闭所有客户端连接"""
@@ -98,17 +102,185 @@ class TigerClient:
 
             print(f"✅ Tiger clients initialized for account: {account_name}")
 
-    async def get_instruments(self, underlying_symbol: str, kind: str = "option") -> List[Dict]:
+    async def ensure_quote_client(self, account_name: Optional[str] = None) -> str:
+        """确保行情客户端已准备好并返回已使用的账户名"""
+        # 如果显式指定账户且当前不是该账户，则切换
+        if account_name and account_name != self._current_account:
+            await self._ensure_clients(account_name)
+            return account_name
+
+        # 如果未初始化客户端，则选择第一个启用账户
+        if self.quote_client is None or self._current_account is None:
+            enabled_accounts = self.config_loader.get_enabled_accounts()
+            if not enabled_accounts:
+                raise RuntimeError("No enabled accounts available for Tiger client")
+
+            default_account = enabled_accounts[0].name
+            await self._ensure_clients(default_account)
+            return default_account
+
+        return self._current_account
+
+    def invalidate_instruments_cache(self, underlying_symbol: Optional[str] = None) -> None:
+        """清理期权链缓存"""
+        if underlying_symbol:
+            self._instruments_cache.pop(underlying_symbol.upper(), None)
+            self._expirations_cache.pop(underlying_symbol.upper(), None)
+            return
+        self._instruments_cache.clear()
+        self._expirations_cache.clear()
+        self._underlyings_cache.clear()
+
+    async def get_option_underlyings(
+        self,
+        account_name: Optional[str] = None,
+        market: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """获取期权可选标的列表
+
+        注意: Tiger目前主要支持香港市场(HK)的期权数据
+        """
+        used_account = await self.ensure_quote_client(account_name)
+
+        cache_key = f"{used_account}:{(market or 'ALL').upper()}"
+        cache = self._underlyings_cache.get(cache_key)
+        if cache:
+            ts = cache.get('ts'); items = cache.get('items')
+            if ts and (datetime.now().timestamp() - ts) < self._underlyings_cache_ttl_sec:
+                return items or []
+
+        market_enum = None
+        if market:
+            try:
+                market_enum = getattr(Market, market.upper())
+            except AttributeError:
+                print(f"⚠️ 未找到市场枚举 {market}，使用默认市场")
+                market_enum = None
+
+        # 首先尝试指定市场，如果失败则尝试默认市场
+        symbols_df = None
+        error_messages = []
+
+        # 如果指定了市场，先尝试该市场
+        if market_enum:
+            try:
+                symbols_df = self.quote_client.get_option_symbols(market=market_enum)
+            except Exception as error:
+                error_messages.append(f"市场 {market}: {error}")
+
+        # 如果指定市场失败或未指定市场，尝试默认调用
+        if symbols_df is None or len(symbols_df) == 0:
+            try:
+                symbols_df = self.quote_client.get_option_symbols()
+            except Exception as error:
+                error_messages.append(f"默认市场: {error}")
+
+        # 如果还是失败，尝试HK市场（Tiger主要支持的市场）
+        if symbols_df is None or len(symbols_df) == 0:
+            try:
+                symbols_df = self.quote_client.get_option_symbols(market=Market.HK)
+            except Exception as error:
+                error_messages.append(f"HK市场: {error}")
+
+        if symbols_df is None or len(symbols_df) == 0:
+            print(f"❌ 所有市场尝试都失败:")
+            for msg in error_messages:
+                print(f"  - {msg}")
+            print(f"💡 提示: Tiger目前主要支持香港市场(HK)的期权数据")
+            return []
+
+        if symbols_df is None or len(symbols_df) == 0:
+            return []
+
+        underlyings: Dict[str, Dict[str, Any]] = {}
+
+        for _, row in symbols_df.iterrows():
+            symbol = (row.get('symbol') or row.get('code') or '').strip()
+            if not symbol:
+                continue
+
+            key = symbol.upper()
+            if key in underlyings:
+                continue
+
+            underlyings[key] = {
+                "symbol": symbol.upper(),
+                "name": row.get('name') or row.get('description') or symbol.upper(),
+                "market": str(row.get('market') or (market_enum.name if market_enum else '')).upper(),
+                "currency": row.get('currency') or 'USD'
+            }
+
+        result = sorted(underlyings.values(), key=lambda item: item['symbol'])
+
+        self._underlyings_cache[cache_key] = {
+            'ts': datetime.now().timestamp(),
+            'items': result,
+        }
+
+        return result
+
+    async def get_option_expirations(self, underlying_symbol: str) -> List[Dict[str, Any]]:
+        """获取指定标的的期权到期日列表"""
+        await self.ensure_quote_client()
+
+        symbol = underlying_symbol.upper()
+
+        cache = self._expirations_cache.get(symbol)
+        if cache:
+            ts = cache.get('ts'); items = cache.get('items')
+            if ts and (datetime.now().timestamp() - ts) < self._expirations_cache_ttl_sec:
+                return items or []
+
+        expirations_df = self.quote_client.get_option_expirations(symbols=[symbol])
+        if expirations_df is None or len(expirations_df) == 0:
+            return []
+
+        now_ms = int(datetime.now().timestamp() * 1000)
+        expirations: List[Dict[str, Any]] = []
+
+        for _, row in expirations_df.iterrows():
+            raw_ts = int(row.get('timestamp') or 0)
+            # Tiger 返回秒；转换为毫秒维护一致性
+            ts_ms = raw_ts * 1000 if raw_ts and raw_ts < 10**12 else raw_ts
+            if ts_ms <= 0:
+                continue
+
+            days_left = max(0, int((ts_ms - now_ms) / (24 * 3600 * 1000)))
+            expirations.append({
+                "timestamp": ts_ms,
+                "date": row.get('date') or datetime.fromtimestamp(ts_ms / 1000).strftime('%Y-%m-%d'),
+                "days_to_expiry": days_left
+            })
+
+        expirations.sort(key=lambda item: item["timestamp"])
+
+        self._expirations_cache[symbol] = {
+            'ts': datetime.now().timestamp(),
+            'items': expirations,
+        }
+
+        return expirations
+
+    async def get_instruments(
+        self,
+        underlying_symbol: str,
+        kind: str = "option",
+        expiry_timestamp: Optional[int] = None
+    ) -> List[Dict]:
         """获取期权工具列表 - 直接使用Tiger格式"""
         if kind != "option":
             raise ValueError("Tiger client only supports options")
 
         try:
+            await self.ensure_quote_client()
+
             # 直接使用传入的标的符号，不进行货币映射
             symbol = underlying_symbol.upper()
 
+            cache_key = symbol if expiry_timestamp is None else f"{symbol}:{int(expiry_timestamp)}"
+
             # 缓存命中则直接返回
-            cache = self._instruments_cache.get(symbol)
+            cache = self._instruments_cache.get(cache_key)
             if cache:
                 ts = cache.get('ts'); items = cache.get('items')
                 if ts and (datetime.now().timestamp() - ts) < self._instruments_cache_ttl_sec:
@@ -119,38 +291,59 @@ class TigerClient:
 
             print(f"   获取 {symbol} 的期权工具...")
 
-            # 获取期权到期日
-            expirations = self.quote_client.get_option_expirations(symbols=[symbol])
+            def convert_timestamp(value: Optional[int]) -> Optional[int]:
+                if value is None:
+                    return None
+                return value * 1000 if value < 10**12 else value
 
-            if expirations is None or len(expirations) == 0:
-                print(f"   ⚠️ 没有找到 {symbol} 的期权到期日")
-                return []
+            if expiry_timestamp is not None:
+                expiry_ts_ms = convert_timestamp(int(expiry_timestamp))
+                if expiry_ts_ms is None:
+                    return []
 
-            print(f"   找到 {len(expirations)} 个到期日")
-
-            for _, expiry_row in expirations.iterrows():
-                expiry_timestamp = int(expiry_row['timestamp'])
-                expiry_date = expiry_row.get('date', 'N/A')
-
-                print(f"   处理到期日: {expiry_date}")
-
-                # 获取期权链
-                option_chain = self.quote_client.get_option_chain(symbol, expiry_timestamp)
+                print(f"   处理单一到期日: {expiry_ts_ms}")
+                option_chain = self.quote_client.get_option_chain(symbol, int(expiry_ts_ms), return_greek_value=True)
 
                 if option_chain is None or len(option_chain) == 0:
+                    print("   ⚠️ 指定到期日没有期权数据")
+                else:
+                    for _, option in option_chain.iterrows():
+                        tiger_option = self._convert_tiger_option_to_native(option, symbol)
+                        if tiger_option:
+                            all_options.append(tiger_option)
+            else:
+                # 获取所有到期日（向后兼容）
+                expirations = self.quote_client.get_option_expirations(symbols=[symbol])
 
-                    print(f"   ⚠️ 到期日 {expiry_date} 没有期权数据")
-                    continue
+                if expirations is None or len(expirations) == 0:
+                    print(f"   ⚠️ 没有找到 {symbol} 的期权到期日")
+                    return []
 
-                # 直接使用Tiger格式，不转换
-                for _, option in option_chain.iterrows():
-                    tiger_option = self._convert_tiger_option_to_native(option, symbol)
-                    if tiger_option:
-                        all_options.append(tiger_option)
+                print(f"   找到 {len(expirations)} 个到期日")
+
+                for _, expiry_row in expirations.iterrows():
+                    expiry_ts = convert_timestamp(int(expiry_row['timestamp']))
+                    expiry_date = expiry_row.get('date', 'N/A')
+
+                    print(f"   处理到期日: {expiry_date}")
+
+                    # 获取期权链
+                    option_chain = self.quote_client.get_option_chain(symbol, int(expiry_ts or 0))
+
+                    if option_chain is None or len(option_chain) == 0:
+
+                        print(f"   ⚠️ 到期日 {expiry_date} 没有期权数据")
+                        continue
+
+                    # 直接使用Tiger格式，不转换
+                    for _, option in option_chain.iterrows():
+                        tiger_option = self._convert_tiger_option_to_native(option, symbol)
+                        if tiger_option:
+                            all_options.append(tiger_option)
 
             print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具")
             # 写入缓存
-            self._instruments_cache[symbol] = {
+            self._instruments_cache[cache_key] = {
                 'ts': datetime.now().timestamp(),
                 'items': all_options,
             }
@@ -163,6 +356,8 @@ class TigerClient:
     async def get_ticker(self, instrument_name: str) -> Optional[Dict]:
         """获取期权报价 - 直接使用Tiger格式"""
         try:
+            await self.ensure_quote_client()
+
             # 直接使用Tiger格式的标识符
             tiger_symbol = instrument_name
 
@@ -206,6 +401,8 @@ class TigerClient:
 
         except Exception as error:
             print(f"❌ Failed to get ticker for {instrument_name}: {error}")
+            return None
+
     async def get_instrument_by_delta(
         self,
         currency: str,
@@ -245,46 +442,6 @@ class TigerClient:
             def is_match(o):
                 ov = (o.get("option_type") or "").lower()
                 ov_match = (ov in ("call", "c")) if long_side else (ov in ("put", "p"))
-    async def get_instruments_min_days(self, underlying_symbol: str, min_expired_days: int, take_expirations: int = 3) -> List[Dict]:
-        """获取满足最小到期天数的有限期权链，减少接口调用以避免限流"""
-        symbol = underlying_symbol.upper()
-        try:
-            print(f"   获取 {symbol} 的期权工具（最少 {min_expired_days} 天, 取前 {take_expirations} 个到期）...")
-            expirations = self.quote_client.get_option_expirations(symbols=[symbol])
-            if expirations is None or len(expirations) == 0:
-                print(f"   ⚠️ 没有找到 {symbol} 的期权到期日")
-                return []
-
-            now_ms = int(datetime.now().timestamp() * 1000)
-            min_expiry_ms = now_ms + int((min_expired_days or 0) * 24 * 3600 * 1000)
-
-            # 选取符合条件的到期日，按时间升序
-            rows = []
-            for _, r in expirations.iterrows():
-                ts = int(r['timestamp'])
-                if ts >= min_expiry_ms:
-                    rows.append((ts, r.get('date', 'N/A')))
-            rows.sort(key=lambda x: x[0])
-            rows = rows[:max(1, int(take_expirations))]
-
-            all_options: List[Dict] = []
-            for ts, dstr in rows:
-                print(f"   处理到期日: {dstr}")
-                option_chain = self.quote_client.get_option_chain(symbol, ts)
-                if option_chain is None or len(option_chain) == 0:
-                    print(f"   ⚠️ 到期日 {dstr} 没有期权数据")
-                    continue
-                for _, option in option_chain.iterrows():
-                    tiger_option = self._convert_tiger_option_to_native(option, symbol)
-                    if tiger_option:
-                        all_options.append(tiger_option)
-
-            print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具 (受限模式)")
-            return all_options
-        except Exception as error:
-            print(f"❌ Failed to get instruments (min_days): {error}")
-            return []
-
                 return ov_match and exp_ms(o) >= min_expiry_ms
 
             candidates = [o for o in options if is_match(o)]
@@ -432,7 +589,46 @@ class TigerClient:
             print(f"❌ get_instrument_by_delta failed: {e}")
             return None
 
-            return None
+    # todo: min_expired_days改成 expired_days, 查找过期日需要重构: 查找距离expired_days绝对值最近的
+    async def get_instruments_min_days(self, underlying_symbol: str, min_expired_days: int, take_expirations: int = 1) -> List[Dict]:
+        """获取满足最小到期天数的有限期权链，减少接口调用以避免限流"""
+        symbol = underlying_symbol.upper()
+        try:
+            print(f"   获取 {symbol} 的期权工具（最少 {min_expired_days} 天, 取前 {take_expirations} 个到期）...")
+            expirations = self.quote_client.get_option_expirations(symbols=[symbol])
+            if expirations is None or len(expirations) == 0:
+                print(f"   ⚠️ 没有找到 {symbol} 的期权到期日")
+                return []
+
+            now_ms = int(datetime.now().timestamp() * 1000)
+            min_expiry_ms = now_ms + int((min_expired_days or 0) * 24 * 3600 * 1000)
+
+            # 选取符合条件的到期日，按时间升序
+            rows = []
+            for _, r in expirations.iterrows():
+                ts = int(r['timestamp'])
+                if ts >= min_expiry_ms:
+                    rows.append((ts, r.get('date', 'N/A')))
+            rows.sort(key=lambda x: x[0])
+            rows = rows[:max(1, int(take_expirations))]
+
+            all_options: List[Dict] = []
+            for ts, date_str in rows:
+                print(f"   处理到期日: {date_str}")
+                option_chain = self.quote_client.get_option_chain(symbol, ts)
+                if option_chain is None or len(option_chain) == 0:
+                    print(f"   ⚠️ 到期日 {date_str} 没有期权数据")
+                    continue
+                for _, option in option_chain.iterrows():
+                    tiger_option = self._convert_tiger_option_to_native(option, symbol)
+                    if tiger_option:
+                        all_options.append(tiger_option)
+
+            print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具 (受限模式)")
+            return all_options
+        except Exception as error:
+            print(f"❌ Failed to get instruments (min_days): {error}")
+            return []
 
     def _convert_tiger_option_to_native(self, tiger_option: Any, underlying: str) -> Dict:
         """转换Tiger期权数据到原生格式（不转换为Deribit）"""

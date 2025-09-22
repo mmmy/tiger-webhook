@@ -104,6 +104,11 @@ def create_app() -> FastAPI:
         """Logs query page"""
         return FileResponse(PUBLIC_DIR / "logs.html")
 
+    @app.get("/tiger/options")
+    async def tiger_options_page():
+        """Tiger options explorer page"""
+        return FileResponse(PUBLIC_DIR / "tiger-options.html")
+
     @app.get("/accounts/{account_name}")
     async def account_detail_page(account_name: str):
         """Account detail dashboard"""

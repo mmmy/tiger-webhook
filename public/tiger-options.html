@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tiger Options Explorer</title>
+    <link rel="stylesheet" href="/static/css/tiger-options.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <a class="back-link" href="/">&larr; 返回仪表盘</a>
+            <h1>🐯 Tiger 期权链</h1>
+            <p class="subtitle">浏览 Tiger Brokers 提供的期权合约，支持按标的、期限与行权价筛选。</p>
+        </header>
+
+        <section class="filters">
+            <form id="options-form" class="filters__form">
+                <div class="form-group">
+                    <label for="account-select">账户</label>
+                    <select id="account-select" class="input"></select>
+                </div>
+                <div class="form-group">
+                    <label for="underlying-input">标的代码</label>
+                    <input id="underlying-input" class="input" type="text" value="QQQ" placeholder="例如：QQQ" autocomplete="off" required>
+                </div>
+                <div class="form-group">
+                    <label for="option-type-select">期权类型</label>
+                    <select id="option-type-select" class="input">
+                        <option value="">全部</option>
+                        <option value="call">Call</option>
+                        <option value="put">Put</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="expiration-select">到期日</label>
+                    <select id="expiration-select" class="input"></select>
+                </div>
+                <div class="form-group">
+                    <label for="min-days-input">最少剩余天数</label>
+                    <input id="min-days-input" class="input" type="number" min="0" placeholder="不限">
+                </div>
+                <div class="form-group">
+                    <label for="max-days-input">最多剩余天数</label>
+                    <input id="max-days-input" class="input" type="number" min="0" placeholder="不限">
+                </div>
+                <div class="form-group">
+                    <label for="min-strike-input">最低行权价</label>
+                    <input id="min-strike-input" class="input" type="number" step="0.01" placeholder="不限">
+                </div>
+                <div class="form-group">
+                    <label for="max-strike-input">最高行权价</label>
+                    <input id="max-strike-input" class="input" type="number" step="0.01" placeholder="不限">
+                </div>
+                <div class="form-group form-group--actions">
+                    <button id="refresh-button" class="btn btn-primary" type="submit">查询</button>
+                    <button id="reset-button" class="btn" type="button">重置</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="summary" id="summary-section">
+            <div class="summary-card">
+                <span class="summary-label">当前账户</span>
+                <span class="summary-value" id="summary-account">-</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">标的</span>
+                <span class="summary-value" id="summary-underlying">-</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">到期日</span>
+                <span class="summary-value" id="summary-expiration">-</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">返回数量</span>
+                <span class="summary-value" id="summary-count">0</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">更新时间</span>
+                <span class="summary-value" id="summary-updated">-</span>
+            </div>
+        </section>
+
+        <section class="status" id="status-section" hidden>
+            <p id="status-message"></p>
+        </section>
+
+        <section class="table-section">
+            <div class="table-wrapper" id="options-table-wrapper">
+                <p class="placeholder">请先查询，结果将显示在此处。</p>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/js/tiger-options.js"></script>
+</body>
+</html>
