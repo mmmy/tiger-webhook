@@ -863,14 +863,11 @@ class TigerClient:
             await self._ensure_clients(account_name)
 
             # 获取订单详情
-            orders = self.trade_client.get_orders(account=self.client_config.account, order_id=order_id)
+            tiger_order = self.trade_client.get_order(account=self.client_config.account, id=order_id)
 
-            if not orders or len(orders) == 0:
+            if not tiger_order:
                 self.logger.warning("⚠️ 未找到订单", order_id=order_id)
                 return None
-
-            # 取第一个订单（按order_id查询应该只有一个）
-            tiger_order = orders[0]
 
             # 转换为Deribit格式
             order_state = {
@@ -880,8 +877,8 @@ class TigerClient:
                 "filled_amount": float(tiger_order.filled or 0),
                 "average_price": float(tiger_order.avg_fill_price or 0),
                 "price": float(tiger_order.limit_price or tiger_order.avg_fill_price or 0),
-                "creation_timestamp": int(datetime.now().timestamp() * 1000),
-                "last_update_timestamp": int(datetime.now().timestamp() * 1000)
+                "creation_timestamp": tiger_order.order_time,
+                "last_update_timestamp": tiger_order.update_time
             }
 
             self.logger.debug("✅ 获取订单状态成功",
