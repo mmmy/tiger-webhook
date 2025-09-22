@@ -8,6 +8,7 @@ import os
 import math
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 
 from tigeropen.tiger_open_config import TigerOpenClientConfig
 from tigeropen.quote.quote_client import QuoteClient
@@ -284,12 +285,14 @@ class TigerClient:
             if cache:
                 ts = cache.get('ts'); items = cache.get('items')
                 if ts and (datetime.now().timestamp() - ts) < self._instruments_cache_ttl_sec:
-                    print(f"   ✅ 命中缓存的期权链: {symbol} (TTL {self._instruments_cache_ttl_sec}s)")
+                    self.logger.info("✅ 命中缓存的期权链",
+                                   symbol=symbol,
+                                   ttl_seconds=self._instruments_cache_ttl_sec)
                     return items or []
 
             all_options = []
 
-            print(f"   获取 {symbol} 的期权工具...")
+            self.logger.info("获取期权工具", symbol=symbol)
 
             def convert_timestamp(value: Optional[int]) -> Optional[int]:
                 if value is None:
@@ -301,14 +304,14 @@ class TigerClient:
                 if expiry_ts_ms is None:
                     return []
 
-                print(f"   处理单一到期日: {expiry_ts_ms}")
+                self.logger.debug("处理单一到期日", expiry_timestamp_ms=expiry_ts_ms)
                 option_chain = self.quote_client.get_option_chain(symbol, int(expiry_ts_ms), return_greek_value=True)
 
                 if option_chain is None or len(option_chain) == 0:
-                    print("   ⚠️ 指定到期日没有期权数据")
+                    self.logger.warning("⚠️ 指定到期日没有期权数据")
                 else:
                     for _, option in option_chain.iterrows():
-                        tiger_option = self._convert_tiger_option_to_native(option, symbol)
+                        tiger_option = self._prepare_tiger_option_data(option, symbol)
                         if tiger_option:
                             all_options.append(tiger_option)
             else:
@@ -316,32 +319,33 @@ class TigerClient:
                 expirations = self.quote_client.get_option_expirations(symbols=[symbol])
 
                 if expirations is None or len(expirations) == 0:
-                    print(f"   ⚠️ 没有找到 {symbol} 的期权到期日")
+                    self.logger.warning("⚠️ 没有找到期权到期日", symbol=symbol)
                     return []
 
-                print(f"   找到 {len(expirations)} 个到期日")
+                self.logger.debug("找到期权到期日", symbol=symbol, expiration_count=len(expirations))
 
                 for _, expiry_row in expirations.iterrows():
                     expiry_ts = convert_timestamp(int(expiry_row['timestamp']))
                     expiry_date = expiry_row.get('date', 'N/A')
 
-                    print(f"   处理到期日: {expiry_date}")
+                    self.logger.debug("处理到期日", expiry_date=expiry_date)
 
                     # 获取期权链
                     option_chain = self.quote_client.get_option_chain(symbol, int(expiry_ts or 0))
 
                     if option_chain is None or len(option_chain) == 0:
-
-                        print(f"   ⚠️ 到期日 {expiry_date} 没有期权数据")
+                        self.logger.warning("⚠️ 到期日没有期权数据", expiry_date=expiry_date)
                         continue
 
-                    # 直接使用Tiger格式，不转换
+                    # 直接使用Tiger格式，保留所有原始数据
                     for _, option in option_chain.iterrows():
-                        tiger_option = self._convert_tiger_option_to_native(option, symbol)
+                        tiger_option = self._prepare_tiger_option_data(option, symbol)
                         if tiger_option:
                             all_options.append(tiger_option)
 
-            print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具")
+            self.logger.info("✅ 总共获取到期权工具",
+                            symbol=symbol,
+                            option_count=len(all_options))
             # 写入缓存
             self._instruments_cache[cache_key] = {
                 'ts': datetime.now().timestamp(),
@@ -350,7 +354,7 @@ class TigerClient:
             return all_options
 
         except Exception as error:
-            print(f"❌ Failed to get instruments: {error}")
+            self.logger.error("❌ Failed to get instruments", symbol=symbol, error=str(error))
             return []
 
     async def get_ticker(self, instrument_name: str) -> Optional[Dict]:
@@ -361,13 +365,13 @@ class TigerClient:
             # 直接使用Tiger格式的标识符
             tiger_symbol = instrument_name
 
-            print(f"   获取期权报价: {tiger_symbol}")
+            self.logger.debug("获取期权报价", tiger_symbol=tiger_symbol)
 
             # 获取期权报价
             briefs = self.quote_client.get_option_briefs([tiger_symbol])
 
             if briefs is None or len(briefs) == 0:
-                print(f"   ⚠️ 未获取到期权报价数据")
+                self.logger.warning("⚠️ 未获取到期权报价数据", tiger_symbol=tiger_symbol)
                 return None
 
             option_data = briefs.iloc[0]
@@ -430,161 +434,101 @@ class TigerClient:
                 return None
             print(f"   候选期权数量: {len(options)}，示例类型: {[ (o.get('option_type'), o.get('expiration_timestamp')) for o in options[:3] ]}")
 
-            opt_type = "call" if long_side else "put"
-            now_ms = int(datetime.now().timestamp() * 1000)
-            min_expiry_ms = now_ms + int((min_expired_days or 0) * 24 * 3600 * 1000)
-            target_abs = abs(delta or 0)
+            opt_type = "call" if delta > 0 else "put"
+            target_delta = abs(delta)  # Use absolute value for comparison
 
-            def exp_ms(o):
-                ts = int(o.get("expiration_timestamp", 0) or 0)
-                return ts * 1000 if ts and ts < 10**12 else ts
+            # 1. 根据opt_type过滤options
+            filtered_options = [
+                option for option in options
+                if option.get('option_type', '').lower() == opt_type
+            ]
 
-            def is_match(o):
-                ov = (o.get("option_type") or "").lower()
-                ov_match = (ov in ("call", "c")) if long_side else (ov in ("put", "p"))
-                return ov_match and exp_ms(o) >= min_expiry_ms
-
-            candidates = [o for o in options if is_match(o)]
-            if not candidates:
-                candidates = [o for o in options if (o.get("option_type") or "").lower() in (("call","c") if long_side else ("put","p"))]
-            if not candidates:
+            if not filtered_options:
+                print(f"⚠️ No {opt_type} options found")
                 return None
 
-            # Try to use delta from option chain directly
-            with_delta = [o for o in candidates if o.get('delta') is not None]
+            print(f"   过滤后的{opt_type}期权数量: {len(filtered_options)}")
 
-            # Determine underlying price fallback from chain
-            underlying_px = None
-            for o in candidates:
-                if o.get('underlying_price') not in (None, ""):
+            # 2. 然后根据|delta - option.delta|的绝对值排序, 选出3个小的
+            # First, separate options with and without delta values
+            options_with_delta = []
+            options_without_delta = []
+
+            for option in filtered_options:
+                option_delta = option.get('delta')
+                if option_delta is not None and option_delta != "":
                     try:
-                        underlying_px = float(o.get('underlying_price'))
-                        break
-                    except Exception:
-                        pass
+                        delta_val = abs(float(option_delta))
+                        delta_distance = abs(target_delta - delta_val)
+                        options_with_delta.append((option, delta_distance, delta_val))
+                    except (ValueError, TypeError):
+                        options_without_delta.append(option)
+                else:
+                    options_without_delta.append(option)
 
-            # Fallback: try to fetch underlying stock brief price if missing/zero
-            if (underlying_px is None) or (underlying_px <= 0):
-                try:
-                    sbriefs = self.quote_client.get_briefs([underlying_asset])
-                    if sbriefs is not None and len(sbriefs) > 0:
-                        srow = sbriefs.iloc[0]
-                        underlying_px = float(srow.get('latest_price', 0) or srow.get('close', 0) or 0)
-                except Exception as _e:
-                    pass
+            # Sort options with delta by delta distance and take top 3
+            options_with_delta.sort(key=lambda x: x[1])  # Sort by delta_distance
+            top_candidates = options_with_delta[:3]
 
-            # If too many candidates or missing deltas, narrow by strike proximity
-            def strike(o):
-                try:
-                    return float(o.get('strike', 0) or 0)
-                except Exception:
-                    return 0.0
+            print(f"   有delta值的期权: {len(options_with_delta)}, 无delta值的期权: {len(options_without_delta)}")
 
-            if underlying_px is not None and len(candidates) > 200:
-                candidates.sort(key=lambda o: abs(strike(o) - underlying_px))
-                candidates = candidates[:200]
-                with_delta = [o for o in candidates if o.get('delta') is not None]
+            if not top_candidates:
+                print("⚠️ No suitable candidates found")
+                return None
 
-            # If still no delta info, batch fetch briefs for top N
-            if not with_delta:
-                idents = [ (o.get('instrument_name') or o.get('symbol')) for o in candidates[:50] ]
-                idents = [i for i in idents if i]
-                if idents:
-                    try:
-                        briefs = self.quote_client.get_option_briefs(idents)
-                        # Map in order (assumes API returns in same order)
-                        for idx, (_, row) in enumerate(briefs.iterrows()):
-                            if idx < len(candidates):
-                                try:
-                                    candidates[idx]['delta'] = float(row.get('delta', 0) or 0)
-                                    candidates[idx]['implied_vol'] = float(row.get('implied_vol', 0) or 0)
-                                    if underlying_px is None:
-                                        underlying_px = float(row.get('underlying_price', 0) or 0) or underlying_px
-                                except Exception:
-                                    pass
-                        with_delta = [o for o in candidates if o.get('delta') is not None]
-                    except Exception as _e:
-                        print(f"⚠️ Batch fetch briefs failed: {_e}")
-            # Theoretical delta fallback using Black-Scholes if delta still missing/zero
-            def _norm_cdf(x: float) -> float:
-                return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
-            def _bs_delta(S: float, K: float, T: float, r: float, sigma: float, is_call: bool) -> Optional[float]:
-                try:
-                    if S <= 0 or K <= 0 or T <= 0 or sigma <= 0:
-                        return None
-                    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
-                    nd1 = _norm_cdf(d1)
-                    return nd1 if is_call else (nd1 - 1.0)
-                except Exception:
-                    return None
-            if underlying_px and underlying_px > 0:
-                r_rate = 0.02
-                for o in candidates:
-                    try:
-                        dval = o.get('delta')
-                        if dval is None or abs(float(dval)) < 1e-6:
-                            iv = o.get('implied_vol') or 0
-                            if iv and iv > 0:
-                                T = (exp_ms(o) - now_ms) / (365.0 * 24 * 3600 * 1000)
-                                if T and T > 0:
-                                    K = float(o.get('strike') or 0)
-                                    is_call = ((o.get('option_type') or '').lower() in ('call','c'))
-                                    td = _bs_delta(underlying_px, K, T, r_rate, float(iv), is_call)
-                                    if td is not None:
-                                        o['delta'] = td
-                    except Exception:
-                        pass
+            print(f"   候选期权数量: {len(top_candidates)}")
+            for i, (option, delta_dist, delta_val) in enumerate(top_candidates):
+                print(f"     {i+1}. {option.get('instrument_name')} - delta: {delta_val}, distance: {delta_dist:.4f}")
 
+            # 3. 从3个中选一个: 盘口价差最小的
+            best_option = None
+            best_spread_ratio = float('inf')
 
-            def score(o):
-                d = o.get('delta')
-                if d is None:
-                    # Fallback: use strike proximity if we have underlying price
-                    return abs(strike(o) - (underlying_px or strike(o))) + 1.0
-                try:
-                    return abs(abs(float(d)) - target_abs)
-                except Exception:
-                    return 1.0
+            for option, delta_distance, delta_val in top_candidates:
+                instrument_name = option.get('instrument_name')
+                if not instrument_name:
+                    continue
 
-            # Pick best
-            candidates.sort(key=score)
-            chosen = candidates[0]
+                # Get ticker data for spread calculation
 
-            instrument_name = chosen.get("instrument_name") or chosen.get("symbol")
-            ticker = await self.get_ticker(instrument_name)
-            if not ticker:
-                best_bid = 0.01
-                best_ask = 0.02
-                index_price = underlying_px or 100.0
-            else:
-                best_bid = float(ticker.get("best_bid_price", 0) or 0)
-                best_ask = float(ticker.get("best_ask_price", 0) or 0)
-                index_price = float(ticker.get("index_price", 0) or (underlying_px or 0))
+                bid = option.get('bid_price', 0)
+                ask = option.get('ask_price', 0)
 
-            if best_ask <= 0:
-                best_ask = max(best_bid, 0.01)
+                if bid <= 0 or ask <= 0:
+                    print(f"   ⚠️ {instrument_name} 报价无效: bid={bid}, ask={ask}")
+                    continue
 
-            spread_ratio = ((best_ask - best_bid) / best_ask) if best_ask > 0 else 1.0
+                # Calculate spread ratio
+                spread_ratio = (ask - bid) / ((bid + ask) / 2) if (bid + ask) > 0 else float('inf')
 
-            tick_size_val = chosen.get("tick_size", 0.01) or 0.01
-            instrument_ns = SimpleNamespace(
-                instrument_name=instrument_name,
-                tick_size=tick_size_val,
-                min_trade_amount=chosen.get("min_trade_amount", 1),
-                quote_currency=chosen.get("currency", "USD"),
-                settlement_currency=chosen.get("currency", "USD")
-            )
-            details_ns = SimpleNamespace(
-                best_bid_price=best_bid,
-                best_ask_price=best_ask,
-                index_price=index_price
-            )
+                print(f"   {instrument_name}: bid={bid}, ask={ask}, spread_ratio={spread_ratio:.4f}")
 
-            return SimpleNamespace(
-                instrument=instrument_ns,
-                details=details_ns,
-                spread_ratio=spread_ratio
-            )
+                if spread_ratio < best_spread_ratio:
+                    best_spread_ratio = spread_ratio
+                    best_option = option
+
+            if not best_option:
+                print("⚠️ 未找到合适的期权")
+                return None
+
+            # Create result in expected format
+            result = SimpleNamespace()
+            # Convert dictionary to SimpleNamespace so it can be accessed with dot notation
+            result.instrument = SimpleNamespace(**best_option)
+
+            # Create details object with market data
+            result.details = SimpleNamespace()
+            result.details.best_bid_price = best_option.get('bid_price', 0) or best_option.get('bid', 0)
+            result.details.best_ask_price = best_option.get('ask_price', 0) or best_option.get('ask', 0)
+            result.details.index_price = best_option.get('underlying_price', 0)
+            result.details.mark_price = (result.details.best_bid_price + result.details.best_ask_price) / 2 if result.details.best_bid_price and result.details.best_ask_price else 0
+
+            result.spread_ratio = best_spread_ratio
+            result.delta_distance = min(delta_distance for _, delta_distance, _ in top_candidates if delta_distance != float('inf')) if any(d != float('inf') for _, d, _ in top_candidates) else None
+
+            print(f"✅ 选择期权: {result.instrument.instrument_name}, spread_ratio: {result.spread_ratio:.4f}")
+            return result
+
         except Exception as e:
             print(f"❌ get_instrument_by_delta failed: {e}")
             return None
@@ -632,7 +576,8 @@ class TigerClient:
                     print(f"   ⚠️ 到期日 {date_str} 没有期权数据")
                     continue
                 for _, option in option_chain.iterrows():
-                    tiger_option = self._convert_tiger_option_to_native(option, symbol)
+                    # 直接使用Tiger期权链数据，添加必要的兼容性字段
+                    tiger_option = self._prepare_tiger_option_data(option, symbol)
                     if tiger_option:
                         all_options.append(tiger_option)
 
@@ -657,6 +602,72 @@ class TigerClient:
         """
         # 为了向后兼容，将 min_expired_days 作为目标天数处理
         return await self.get_instruments_by_target_days(underlying_symbol, min_expired_days, take_expirations)
+
+    def _prepare_tiger_option_data(self, tiger_option: Any, underlying: str) -> Dict:
+        """直接使用Tiger期权数据，添加必要的兼容性字段
+
+        这个方法替代了 _convert_tiger_option_to_native，直接返回Tiger数据
+        同时添加下游代码期望的字段名以保持兼容性
+        """
+        try:
+            # 获取Tiger原始数据
+            tiger_symbol = tiger_option.get('identifier', '')
+            if not tiger_symbol:
+                return None
+
+            # 推断期权类型
+            right_val = (tiger_option.get('right')
+                         or tiger_option.get('put_call')
+                         or tiger_option.get('cp_flag')
+                         or tiger_option.get('option_right')
+                         or '')
+            opt = str(right_val).strip().lower()
+            if opt in ('c', 'call'):
+                opt = 'call'
+            elif opt in ('p', 'put'):
+                opt = 'put'
+            else:
+                # 从标识符推断
+                ident = tiger_option.get('identifier', '')
+                last_token = ident.split()[-1] if ident else ''
+                if 'C' in last_token:
+                    opt = 'call'
+                elif 'P' in last_token:
+                    opt = 'put'
+                else:
+                    opt = ''
+
+            # 归一化到期时间为毫秒
+            expiry_raw = int(tiger_option.get('expiry', 0) or 0)
+            expiry_ms = expiry_raw * 1000 if expiry_raw and expiry_raw < 10**12 else expiry_raw
+
+            # 创建包含Tiger原始数据和兼容性字段的字典
+            result = dict(tiger_option)  # 保留所有Tiger原始字段
+
+            # 添加下游代码期望的兼容性字段
+            result.update({
+                "instrument_name": tiger_symbol,
+                "symbol": tiger_symbol,
+                "underlying": underlying,
+                "kind": "option",
+                "option_type": opt,
+                "strike": float(tiger_option.get('strike', 0) or 0),
+                "expiration_timestamp": int(expiry_ms),
+                "expiration_date": tiger_option.get('expiry_date', ''),
+                # "tick_size": 0.01,
+                # "min_trade_amount": 1,
+                # "contract_size": 100,
+                # "currency": "USD",
+                # 保持delta和underlying_price的原始值，如果存在的话
+                "delta": (float(tiger_option.get('delta', 0)) if tiger_option.get('delta') not in (None, "") else None),
+                "underlying_price": (float(tiger_option.get('underlying_price', 0)) if tiger_option.get('underlying_price') not in (None, "") else None)
+            })
+
+            return result
+
+        except Exception as error:
+            print(f"❌ Failed to prepare Tiger option data: {error}")
+            return None
 
     def _convert_tiger_option_to_native(self, tiger_option: Any, underlying: str) -> Dict:
         """转换Tiger期权数据到原生格式（不转换为Deribit）"""
@@ -845,6 +856,149 @@ class TigerClient:
         except Exception as error:
             print(f"❌ Failed to place sell order: {error}")
             return None
+
+    async def get_order_state(self, account_name: str, order_id: str) -> Optional[Dict[str, Any]]:
+        """获取订单状态 - 使用Tiger API实现"""
+        try:
+            await self._ensure_clients(account_name)
+
+            # 获取订单详情
+            orders = self.trade_client.get_orders(account=self.client_config.account, order_id=order_id)
+
+            if not orders or len(orders) == 0:
+                self.logger.warning("⚠️ 未找到订单", order_id=order_id)
+                return None
+
+            # 取第一个订单（按order_id查询应该只有一个）
+            tiger_order = orders[0]
+
+            # 转换为Deribit格式
+            order_state = {
+                "order_id": str(tiger_order.id),
+                "order_state": self._convert_tiger_order_status(tiger_order.status),
+                "amount": float(tiger_order.quantity or 0),
+                "filled_amount": float(tiger_order.filled or 0),
+                "average_price": float(tiger_order.avg_fill_price or 0),
+                "price": float(tiger_order.limit_price or tiger_order.avg_fill_price or 0),
+                "creation_timestamp": int(datetime.now().timestamp() * 1000),
+                "last_update_timestamp": int(datetime.now().timestamp() * 1000)
+            }
+
+            self.logger.debug("✅ 获取订单状态成功",
+                            order_id=order_id,
+                            order_state=order_state["order_state"],
+                            filled_amount=order_state["filled_amount"])
+
+            return order_state
+
+        except Exception as error:
+            self.logger.error("❌ 获取订单状态失败", order_id=order_id, error=str(error))
+            return None
+
+    async def edit_order(
+        self,
+        account_name: str,
+        order_id: str,
+        amount: float,
+        new_price: float
+    ) -> Optional[Dict[str, Any]]:
+        """修改订单 - 使用Tiger API实现"""
+        try:
+            await self._ensure_clients(account_name)
+
+            # 先获取原订单信息
+            original_order_state = await self.get_order_state(account_name, order_id)
+            if not original_order_state:
+                self.logger.error("❌ 无法获取原订单信息", order_id=order_id)
+                return None
+
+            # 检查订单状态是否可以修改
+            if original_order_state.get("order_state") != "open":
+                self.logger.warning("⚠️ 订单状态不允许修改",
+                                  order_id=order_id,
+                                  current_state=original_order_state.get("order_state"))
+                return None
+
+            # 使用Tiger API修改订单
+            result = self.trade_client.modify_order(
+                account=self.client_config.account,
+                order_id=order_id,
+                quantity=int(amount),
+                limit_price=float(new_price)
+            )
+
+            if result:
+                self.logger.info("✅ 订单修改成功",
+                               order_id=order_id,
+                               new_amount=amount,
+                               new_price=new_price)
+
+                # 返回修改后的订单状态
+                return await self.get_order_state(account_name, order_id)
+            else:
+                self.logger.error("❌ 订单修改失败", order_id=order_id)
+                return None
+
+        except Exception as error:
+            self.logger.error("❌ 修改订单异常",
+                            order_id=order_id,
+                            amount=amount,
+                            new_price=new_price,
+                            error=str(error))
+            return None
+
+    async def get_open_orders_by_instrument(
+        self,
+        account_name: str,
+        instrument_name: str
+    ) -> List[Dict[str, Any]]:
+        """获取特定合约的未成交订单 - 使用Tiger API实现"""
+        try:
+            await self._ensure_clients(account_name)
+
+            # 获取所有未成交订单
+            orders = self.trade_client.get_orders(
+                account=self.client_config.account,
+                status='NEW'  # 只获取新订单状态
+            )
+
+            if not orders:
+                return []
+
+            # 过滤指定合约的订单
+            filtered_orders = []
+            for tiger_order in orders:
+                # 检查合约标识符是否匹配
+                if hasattr(tiger_order, 'contract') and tiger_order.contract:
+                    order_symbol = getattr(tiger_order.contract, 'identifier', '') or getattr(tiger_order.contract, 'symbol', '')
+                    if order_symbol == instrument_name:
+                        # 转换为Deribit格式
+                        order_dict = {
+                            "order_id": str(tiger_order.id),
+                            "instrument_name": instrument_name,
+                            "direction": tiger_order.action.lower() if tiger_order.action else "unknown",
+                            "amount": float(tiger_order.quantity or 0),
+                            "price": float(tiger_order.limit_price or 0),
+                            "order_type": "limit" if tiger_order.order_type == "LMT" else "market",
+                            "order_state": self._convert_tiger_order_status(tiger_order.status),
+                            "filled_amount": float(tiger_order.filled or 0),
+                            "average_price": float(tiger_order.avg_fill_price or 0),
+                            "creation_timestamp": int(datetime.now().timestamp() * 1000),
+                            "last_update_timestamp": int(datetime.now().timestamp() * 1000)
+                        }
+                        filtered_orders.append(order_dict)
+
+            self.logger.debug("✅ 获取合约未成交订单",
+                            instrument_name=instrument_name,
+                            order_count=len(filtered_orders))
+
+            return filtered_orders
+
+        except Exception as error:
+            self.logger.error("❌ 获取合约未成交订单失败",
+                            instrument_name=instrument_name,
+                            error=str(error))
+            return []
 
     async def get_positions(self, account_name: str, currency: str = "USD") -> List[Dict]:
         """获取持仓 - 使用Tiger API实现"""

@@ -524,7 +524,7 @@ class OptionTradingService:
         """Place a real option order on Tiger Brokers"""
         try:
             print(f"?? Placing real order for instrument: {instrument_name}")
-            print(f"?? Direction: {direction}, Quantity: {quantity}")
+            print(f"?? Direction: {direction}, 原始 Quantity: {params.quantity}")
 
             # Use Tiger client
             tiger_client = self.trading_client
@@ -536,8 +536,8 @@ class OptionTradingService:
                     f"(bid: {delta_result.details.best_bid_price}, ask: {delta_result.details.best_ask_price})"
                 )
 
-                final_quantity, final_price = self._calculate_order_parameters(
-                    params, delta_result, entry_price
+                final_quantity, final_price = self._calculate_order_parameters_2(
+                    params, entry_price
                 )
                 print(f"?? Final parameters: quantity={final_quantity}, price={final_price}")
 
@@ -546,27 +546,27 @@ class OptionTradingService:
 
                 spread_ratio = delta_result.spread_ratio
                 spread_ratio_threshold = settings.spread_ratio_threshold
-                spread_tick_threshold = settings.spread_tick_multiple_threshold
+                # spread_tick_threshold = settings.spread_tick_multiple_threshold
                 tick_size = getattr(delta_result.instrument, 'tick_size', 0.0001)
 
                 is_reasonable = is_spread_reasonable(
                     delta_result.details.best_bid_price,
                     delta_result.details.best_ask_price,
-                    tick_size,
+                    0,
                     spread_ratio_threshold,
-                    spread_tick_threshold
+                    0
                 )
 
                 spread_percentage = format_spread_ratio_as_percentage(spread_ratio)
-                tick_multiple = (delta_result.details.best_ask_price - delta_result.details.best_bid_price) / tick_size
+                # tick_multiple = (delta_result.details.best_ask_price - delta_result.details.best_bid_price) / tick_size
 
                 print(
                     f"?? Spread analysis: ratio={spread_percentage}, "
-                    f"tick_multiple={tick_multiple:.1f}, reasonable={is_reasonable}"
+                    # f"tick_multiple={tick_multiple:.1f}, reasonable={is_reasonable}"
                 )
                 print(
                     f"?? Thresholds: ratio_threshold={spread_ratio_threshold * 100:.1f}%, "
-                    f"tick_threshold={spread_tick_threshold}"
+                    # f"tick_threshold={spread_tick_threshold}"
                 )
 
                 strategy = 'progressive' if is_reasonable else 'direct'
@@ -666,7 +666,17 @@ class OptionTradingService:
                 message=f"Failed to place {direction} order",
                 error=str(error)
             )
-
+    def _calculate_order_parameters_2(self, params: OptionTradingParams, entry_price: float) -> tuple[float, float]:
+        """Calculate final order quantity and price"""
+        order_quantity = params.quantity
+        if params.qty_type == 'cash':
+            order_quantity = params.quantity / entry_price
+        elif params.qty_type == 'fixed':
+            # Fixed contract quantity - for options, this is typically the number of contracts
+            order_quantity = params.quantity
+            print(f"💰 Fixed mode: using {order_quantity} contracts")
+        return round(order_quantity), entry_price
+    
     def _calculate_order_parameters(self, params: OptionTradingParams, delta_result, entry_price: float) -> tuple[float, float]:
         """Calculate final order quantity and price"""
         order_quantity = params.quantity
@@ -675,15 +685,16 @@ class OptionTradingService:
         settlement_currency = getattr(delta_result.instrument, 'settlement_currency', None) or delta_result.instrument.quote_currency
 
         if params.qty_type == 'cash':
+            order_quantity = params.quantity / entry_price
             # Convert cash amount to contracts
-            if settlement_currency == 'USDC':
-                # USDC options: cash value divided by option price
-                order_quantity = params.quantity / entry_price
-            else:
-                # Traditional options: consider index price
-                index_price = delta_result.details.index_price or 50000  # fallback
-                order_quantity = params.quantity / (entry_price * index_price)
-            print(f"💰 Cash mode: converting ${params.quantity} to {order_quantity} contracts")
+            # if settlement_currency == 'USDC':
+            #     # USDC options: cash value divided by option price
+            #     order_quantity = params.quantity / entry_price
+            # else:
+            #     # Traditional options: consider index price
+            #     index_price = delta_result.details.index_price or 50000  # fallback
+            #     order_quantity = params.quantity / (entry_price * index_price)
+            # print(f"💰 Cash mode: converting ${params.quantity} to {order_quantity} contracts")
         elif params.qty_type == 'fixed':
             # Fixed contract quantity - for options, this is typically the number of contracts
             order_quantity = params.quantity
@@ -765,7 +776,7 @@ class OptionTradingService:
     ) -> Optional[Dict[str, Any]]:
         """Place initial limit order then run progressive limit adjustments"""
         try:
-            tick_size = getattr(delta_result.instrument, 'tick_size', 0.0001)
+            # tick_size = getattr(delta_result.instrument, 'tick_size', 0.0001)
 
             initial_order = await self._place_direct_order(
                 tiger_client,
@@ -786,7 +797,7 @@ class OptionTradingService:
                 quantity=quantity,
                 initial_price=initial_price,
                 account_name=account_name,
-                tick_size=tick_size,
+                tick_size=None,
                 max_steps=getattr(settings, 'progressive_limit_max_steps', 3),
                 step_timeout=float(getattr(settings, 'progressive_limit_step_timeout', 8.0)),
             )

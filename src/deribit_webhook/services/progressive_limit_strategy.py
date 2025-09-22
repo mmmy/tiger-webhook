@@ -8,6 +8,9 @@ from typing import Any, Dict, Literal, Optional
 
 from .tiger_client import TigerClient
 from ..utils.price_utils import round_to_tick_size
+from ..utils.logging_config import get_global_logger
+
+logger = get_global_logger()
 
 
 @dataclass
@@ -104,6 +107,20 @@ async def execute_progressive_limit_strategy(
         )
         new_price = round_to_tick_size(new_price, params.tick_size)
         amount = float(order_status.get("amount") or params.quantity)
+
+        # Log progressive price adjustment details
+        logger.info("📈 Progressive limit price adjustment",
+                   order_id=params.order_id,
+                   instrument_name=params.instrument_name,
+                   direction=params.direction,
+                   step=step,
+                   max_steps=params.max_steps,
+                   initial_price=params.initial_price,
+                   new_price=new_price,
+                   amount=amount,
+                   best_bid=best_bid,
+                   best_ask=best_ask,
+                   tick_size=params.tick_size)
 
         edit_result = await tiger_client.edit_order(
             params.account_name,

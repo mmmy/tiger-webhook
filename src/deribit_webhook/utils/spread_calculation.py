@@ -171,9 +171,9 @@ def is_spread_reasonable(
     """
     # 满足任一条件即认为价差合理
     ratio_ok = not is_spread_too_wide(bid_price, ask_price, ratio_threshold)
-    tick_ok = not is_spread_too_wide_by_ticks(bid_price, ask_price, tick_size, tick_threshold)
+    # tick_ok = not is_spread_too_wide_by_ticks(bid_price, ask_price, tick_size, tick_threshold)
     
-    return ratio_ok or tick_ok
+    return ratio_ok # or tick_ok
 
 
 def get_spread_quality_description(bid_price: float, ask_price: float) -> str:
