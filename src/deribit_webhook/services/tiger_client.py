@@ -654,7 +654,7 @@ class TigerClient:
                 "strike": float(tiger_option.get('strike', 0) or 0),
                 "expiration_timestamp": int(expiry_ms),
                 "expiration_date": tiger_option.get('expiry_date', ''),
-                # "tick_size": 0.01,
+                "tick_size": 0.01,
                 # "min_trade_amount": 1,
                 # "contract_size": 100,
                 # "currency": "USD",
@@ -892,6 +892,7 @@ class TigerClient:
             return order_state
 
         except Exception as error:
+            print(f"❌ Failed to get order state: {error}")
             self.logger.error("❌ 获取订单状态失败", order_id=order_id, error=str(error))
             return None
 
