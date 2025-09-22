@@ -393,18 +393,12 @@ class TigerClient:
                 "index_price": float(option_data.get('underlying_price', 0) or 0),
                 "volume": float(option_data.get('volume', 0) or 0),
                 "open_interest": float(option_data.get('open_interest', 0) or 0),
-                "greeks": {
-                    "delta": float(option_data.get('delta', 0) or 0),
-                    "gamma": float(option_data.get('gamma', 0) or 0),
-                    "theta": float(option_data.get('theta', 0) or 0),
-                    "vega": float(option_data.get('vega', 0) or 0)
-                },
                 "timestamp": int(datetime.now().timestamp() * 1000)
             }
 
 
             print(f"   ✅ 报价获取成功: 买价={ticker_data['best_bid_price']}, 卖价={ticker_data['best_ask_price']}")
-            return ticker_data
+            return SimpleNamespace(**ticker_data)
 
         except Exception as error:
             print(f"❌ Failed to get ticker for {instrument_name}: {error}")
