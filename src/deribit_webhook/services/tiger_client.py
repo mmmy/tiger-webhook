@@ -589,33 +589,45 @@ class TigerClient:
             print(f"❌ get_instrument_by_delta failed: {e}")
             return None
 
-    # todo: min_expired_days改成 expired_days, 查找过期日需要重构: 查找距离expired_days绝对值最近的
-    async def get_instruments_min_days(self, underlying_symbol: str, min_expired_days: int, take_expirations: int = 1) -> List[Dict]:
-        """获取满足最小到期天数的有限期权链，减少接口调用以避免限流"""
+    async def get_instruments_by_target_days(self, underlying_symbol: str, target_expired_days: int, take_expirations: int = 1) -> List[Dict]:
+        """获取距离目标到期天数最近的期权链，减少接口调用以避免限流
+
+        Args:
+            underlying_symbol: 标的符号
+            target_expired_days: 目标到期天数
+            take_expirations: 取最近的几个到期日，默认1个
+
+        Returns:
+            期权列表
+        """
         symbol = underlying_symbol.upper()
         try:
-            print(f"   获取 {symbol} 的期权工具（最少 {min_expired_days} 天, 取前 {take_expirations} 个到期）...")
+            print(f"   获取 {symbol} 的期权工具（目标 {target_expired_days} 天, 取前 {take_expirations} 个最近到期）...")
             expirations = self.quote_client.get_option_expirations(symbols=[symbol])
             if expirations is None or len(expirations) == 0:
                 print(f"   ⚠️ 没有找到 {symbol} 的期权到期日")
                 return []
 
             now_ms = int(datetime.now().timestamp() * 1000)
-            min_expiry_ms = now_ms + int((min_expired_days or 0) * 24 * 3600 * 1000)
 
-            # 选取符合条件的到期日，按时间升序
+            # 选取距离目标到期日绝对值最近的到期日
+            target_expiry_ms = now_ms + int((target_expired_days or 0) * 24 * 3600 * 1000)
             rows = []
             for _, r in expirations.iterrows():
                 ts = int(r['timestamp'])
-                if ts >= min_expiry_ms:
-                    rows.append((ts, r.get('date', 'N/A')))
-            rows.sort(key=lambda x: x[0])
+                # 计算与目标到期日的绝对差值（以毫秒为单位）
+                abs_diff = abs(ts - target_expiry_ms)
+                rows.append((ts, r.get('date', 'N/A'), abs_diff))
+
+            # 按绝对差值排序，取最近的几个
+            rows.sort(key=lambda x: x[2])  # 按绝对差值排序
             rows = rows[:max(1, int(take_expirations))]
 
             all_options: List[Dict] = []
-            for ts, date_str in rows:
-                print(f"   处理到期日: {date_str}")
-                option_chain = self.quote_client.get_option_chain(symbol, ts)
+            for ts, date_str, abs_diff in rows:
+                days_diff = abs_diff / (24 * 3600 * 1000)  # Convert to days for logging
+                print(f"   处理到期日: {date_str} (距离目标 {days_diff:.1f} 天)")
+                option_chain = self.quote_client.get_option_chain(symbol, ts, return_greek_value=True)
                 if option_chain is None or len(option_chain) == 0:
                     print(f"   ⚠️ 到期日 {date_str} 没有期权数据")
                     continue
@@ -624,11 +636,27 @@ class TigerClient:
                     if tiger_option:
                         all_options.append(tiger_option)
 
-            print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具 (受限模式)")
+            print(f"   ✅ 总共获取到 {len(all_options)} 个期权工具 (目标天数模式)")
             return all_options
         except Exception as error:
-            print(f"❌ Failed to get instruments (min_days): {error}")
+            print(f"❌ Failed to get instruments (target_days): {error}")
             return []
+
+    async def get_instruments_min_days(self, underlying_symbol: str, min_expired_days: int, take_expirations: int = 1) -> List[Dict]:
+        """获取满足最小到期天数的有限期权链，减少接口调用以避免限流
+
+        此方法为向后兼容保留，内部调用新的 get_instruments_by_target_days 方法
+
+        Args:
+            underlying_symbol: 标的符号
+            min_expired_days: 最小到期天数（现在作为目标天数处理）
+            take_expirations: 取最近的几个到期日，默认1个
+
+        Returns:
+            期权列表
+        """
+        # 为了向后兼容，将 min_expired_days 作为目标天数处理
+        return await self.get_instruments_by_target_days(underlying_symbol, min_expired_days, take_expirations)
 
     def _convert_tiger_option_to_native(self, tiger_option: Any, underlying: str) -> Dict:
         """转换Tiger期权数据到原生格式（不转换为Deribit）"""
