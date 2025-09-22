@@ -27,6 +27,8 @@ from ..config.settings import settings
 from ..services.auth_service import AuthenticationService
 from ..models.deribit_types import DeribitOrderResponse
 from ..utils.symbol_converter import OptionSymbolConverter
+from ..utils.logging_config import get_global_logger
+
 
 
 class TigerClient:
@@ -36,6 +38,7 @@ class TigerClient:
         self.config_loader = ConfigLoader.get_instance()
         self.auth_service = AuthenticationService.get_instance()
         self.symbol_converter = OptionSymbolConverter()
+        self.logger = get_global_logger().bind(component="tiger_client")
 
         # Tiger客户端配置
         self.client_config: Optional[TigerOpenClientConfig] = None
@@ -380,8 +383,8 @@ class TigerClient:
             ticker_data = {
                 "instrument_name": instrument_name,
                 "symbol": tiger_symbol,
-                "best_bid_price": float(option_data.get('bid', 0) or 0),
-                "best_ask_price": float(option_data.get('ask', 0) or 0),
+                "best_bid_price": float(option_data.get('bid_price', 0) or 0),
+                "best_ask_price": float(option_data.get('ask_price', 0) or 0),
                 "best_bid_amount": float(option_data.get('bid_size', 0) or 0),
                 "best_ask_amount": float(option_data.get('ask_size', 0) or 0),
                 "mark_price": float(option_data.get('latest_price', 0) or 0),
