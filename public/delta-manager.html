@@ -872,16 +872,21 @@
         // 加载实时数据
         async function loadLiveData() {
             try {
-                const response = await fetch(`/api/positions/${currentAccount}/${DEFAULT_POSITIONS_CURRENCY}`);
-                const data = await response.json();
-
-                if (data.success) {
-                    livePositions = data.positions || [];
-                    // 注意：API 返回的是 positions，但我们需要模拟 openOrders
-                    liveOrders = []; // 暂时为空，因为当前 API 不返回订单数据
+                // 1) 仓位
+                const posResp = await fetch(`/api/positions/${currentAccount}/${DEFAULT_POSITIONS_CURRENCY}`);
+                const posData = await posResp.json();
+                if (posData.success) {
+                    livePositions = posData.positions || [];
                 } else {
-                    // Mock 数据作为后备
                     livePositions = [];
+                }
+
+                // 2) 未成交订单
+                const ordersResp = await fetch(`/api/orders/open?accountName=${encodeURIComponent(currentAccount)}`);
+                const ordersData = await ordersResp.json();
+                if (ordersData.success) {
+                    liveOrders = ordersData.orders || [];
+                } else {
                     liveOrders = [];
                 }
             } catch (error) {

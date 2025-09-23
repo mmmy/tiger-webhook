@@ -913,7 +913,7 @@ class TigerClient:
                                   order_id=order_id,
                                   current_state=original_order_state.get("order_state"))
                 return None
-            
+
             tiger_order = self.trade_client.get_order(account=self.client_config.account, id=order_id)
 
             # 使用Tiger API修改订单
@@ -996,6 +996,47 @@ class TigerClient:
                             error=str(error))
             return []
 
+    async def get_open_orders(self, account_name: str) -> List[Dict[str, Any]]:
+        """获取账户的所有未成交订单（Open Orders） - 使用Tiger API实现"""
+        try:
+            await self._ensure_clients(account_name)
+
+            # 获取所有未成交订单
+            orders = self.trade_client.get_open_orders(
+                account=self.client_config.account,
+            )
+
+            if not orders:
+                return []
+
+            normalized_orders: List[Dict[str, Any]] = []
+            for tiger_order in orders:
+                instrument_name = None
+                if hasattr(tiger_order, 'contract') and tiger_order.contract:
+                    instrument_name = getattr(tiger_order.contract, 'identifier', '') or getattr(tiger_order.contract, 'symbol', '')
+
+                order_dict = {
+                    "order_id": str(getattr(tiger_order, 'id', '')),
+                    "instrument_name": instrument_name or "",
+                    "direction": (getattr(tiger_order, 'action', '') or '').lower() or "unknown",
+                    "amount": float(getattr(tiger_order, 'quantity', 0) or 0),
+                    "price": float(getattr(tiger_order, 'limit_price', 0) or 0),
+                    "order_type": "limit" if getattr(tiger_order, 'order_type', None) == "LMT" else "market",
+                    "order_state": self._convert_tiger_order_status(getattr(tiger_order, 'status', 'NEW')),
+                    "filled_amount": float(getattr(tiger_order, 'filled', 0) or 0),
+                    "average_price": float(getattr(tiger_order, 'avg_fill_price', 0) or 0),
+                    "creation_timestamp": int(datetime.now().timestamp() * 1000),
+                    "last_update_timestamp": int(datetime.now().timestamp() * 1000)
+                }
+                normalized_orders.append(order_dict)
+
+            self.logger.debug("✅ 获取账户未成交订单", order_count=len(normalized_orders))
+            return normalized_orders
+
+        except Exception as error:
+            self.logger.error("❌ 获取账户未成交订单失败", error=str(error))
+            return []
+
     async def get_positions(self, account_name: str, currency: str = "USD") -> List[Dict]:
         """获取持仓 - 使用Tiger API实现"""
         try:
@@ -1049,11 +1090,23 @@ class TigerClient:
             for position in records:
                 if not isinstance(position, dict):
                     continue
-                if position.get('sec_type') == 'OPT':  # 只处理期权持仓
-                    deribit_position = self._convert_tiger_position_to_deribit(position)
-                    if deribit_position:
-                        deribit_positions.append(deribit_position)
 
+                # 兼容不同SDK/返回结构的期权标识：
+                sec_type = str(position.get('sec_type', '')).upper()
+                contract = position.get('contract', {}) or {}
+                right = str(contract.get('right', '')).upper()
+                is_option = (
+                    sec_type.startswith('OPT')  # 'OPT', 'OPTS', etc.
+                    or right in {'CALL', 'PUT'}  # 合约中包含期权方向
+                )
+                if not is_option:
+                    continue
+
+                deribit_position = self._convert_tiger_position_to_deribit(position)
+                if deribit_position:
+                    deribit_positions.append(deribit_position)
+
+            self.logger.debug("✅ 获取期权持仓", total=len(records), options=len(deribit_positions))
             return deribit_positions
 
         except Exception as error:

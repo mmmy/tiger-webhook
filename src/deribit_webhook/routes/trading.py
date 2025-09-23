@@ -87,6 +87,16 @@ class TigerOptionsResponse(BaseModel):
     options: List[Dict[str, Any]]
 
 
+
+class OpenOrdersResponse(BaseModel):
+    """Open orders response"""
+    success: bool
+    message: str
+    account_name: str
+    mock_mode: bool
+    count: int
+    orders: List[Dict[str, Any]]
+
 trading_router = APIRouter()
 
 
@@ -121,10 +131,10 @@ async def get_instruments(
     try:
         # Use unified client, automatically handles Mock/Real mode
         client, is_mock = get_unified_client()
-        
+
         try:
             instruments = await client.get_instruments(currency, kind)
-            
+
             return InstrumentsResponse(
                 mock_mode=is_mock,
                 currency=currency,
@@ -134,7 +144,7 @@ async def get_instruments(
             )
         finally:
             await client.close()
-            
+
     except Exception as error:
         raise HTTPException(
             status_code=500,
@@ -324,6 +334,8 @@ async def get_tiger_options(
     )
 
     return TigerOptionsResponse(
+
+
         success=True,
         message=f"Retrieved {len(filtered_options)} options for {normalized_symbol}",
         account_name=target_account.name,
@@ -346,13 +358,13 @@ async def get_instrument(
                 status_code=400,
                 detail="Instrument name is required"
             )
-        
+
         # Use unified client, automatically handles Mock/Real mode
         client, is_mock = get_unified_client()
-        
+
         try:
             instrument = await client.get_instrument(instrument_name)
-            
+
             return InstrumentResponse(
                 mock_mode=is_mock,
                 instrument_name=instrument_name,
@@ -360,9 +372,35 @@ async def get_instrument(
             )
         finally:
             await client.close()
-            
+
     except HTTPException:
         raise
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+
+@trading_router.get("/api/orders/open", response_model=OpenOrdersResponse)
+async def get_open_orders(
+    account_name: str = Query(..., alias="accountName", description="Account name defined in configuration"),
+):
+    """Get open orders for an account"""
+    try:
+        client, is_mock = get_unified_client()
+        try:
+            orders = await client.get_open_orders(account_name)
+        finally:
+            await client.close()
+
+        return OpenOrdersResponse(
+            success=True,
+            message=f"Retrieved {len(orders)} open orders",
+            account_name=account_name,
+            mock_mode=is_mock,
+            count=len(orders),
+            orders=orders,
+        )
     except Exception as error:
         raise HTTPException(
             status_code=500,
@@ -379,19 +417,19 @@ async def get_account_positions(
     """Get account positions endpoint"""
     try:
         currency_upper = currency.upper()
-        
+
         # Account validation is handled by dependency
         # validated_account contains the validated account
-        
+
         # Use unified client, automatically handles Mock/Real mode
         client, is_mock = get_unified_client()
-        
+
         try:
             if is_mock:
                 # Mock mode: return simulated data
                 summary = await client.get_account_summary(account_name, currency_upper)
                 positions = await client.get_positions(account_name, currency_upper)
-                
+
                 return AccountSummaryResponse(
                     mock_mode=True,
                     account_name=account_name,
@@ -403,7 +441,7 @@ async def get_account_positions(
                 # Real mode: get actual data
                 summary = await client.get_account_summary(account_name, currency_upper)
                 positions = await client.get_positions(account_name, currency_upper)
-                
+
                 return AccountSummaryResponse(
                     mock_mode=False,
                     account_name=account_name,
@@ -413,7 +451,7 @@ async def get_account_positions(
                 )
         finally:
             await client.close()
-            
+
     except HTTPException:
         raise
     except Exception as error:
@@ -428,10 +466,10 @@ async def test_connectivity():
     """Test API connectivity"""
     try:
         client, is_mock = get_unified_client()
-        
+
         try:
             success = await client.test_connectivity()
-            
+
             return {
                 "success": success,
                 "mock_mode": is_mock,
@@ -439,7 +477,7 @@ async def test_connectivity():
             }
         finally:
             await client.close()
-            
+
     except Exception as error:
         raise HTTPException(
             status_code=500,
