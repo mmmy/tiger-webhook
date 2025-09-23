@@ -717,7 +717,6 @@ class TigerClient:
 
             # 提取期权参数
             strike_price = float(option_data['strike'])
-            implied_vol = float(option_data['implied_vol'])
 
             # 确定期权类型
             put_call = option_data.get('put_call', '').upper()
@@ -738,6 +737,9 @@ class TigerClient:
             risk_free_rate = 0.05  # 5% 默认无风险利率
             dividend_rate = 0.0    # 0% 默认股息率
 
+            implied_vol = float(option_data['implied_vol'])
+            # todo: implied_vol=0 要重新计算
+            
             # 计算希腊字母
             greeks = calculate_option_greeks(
                 option_type=option_type,

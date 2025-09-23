@@ -8,7 +8,9 @@
 from datetime import datetime, date
 from typing import Dict, Optional, Union
 import math
-from tigeropen.examples.option_helpers.helpers import FDAmericanDividendOptionHelper
+# 注释掉Tiger的helper，因为存在兼容性问题
+# 注释掉Tiger的helper，因为存在兼容性问题
+# from tigeropen.examples.option_helpers.helpers import FDAmericanDividendOptionHelper
 try:
     import QuantLib as ql
     QUANTLIB_AVAILABLE = True
@@ -218,7 +220,7 @@ class OptionCalculator:
         exercise_type="american"
     ):
         """使用QuantLib直接创建期权定价引擎"""
-
+        # 实现有限差分美式期权计算，替代Tiger的FDAmericanDividendOptionHelper
         # 创建标的资产价格
         spot_handle = ql.QuoteHandle(ql.SimpleQuote(underlying))
 
@@ -256,12 +258,65 @@ class OptionCalculator:
 
         # 设置定价引擎
         if exercise_type.lower() == "american":
-            # 美式期权使用二叉树方法
-            engine = ql.BinomialCRRVanillaEngine(bsm_process, 100)
+            # 美式期权使用二叉树方法 (更稳定，支持所有希腊字母)
+            # 注意：有限差分方法虽然精度更高，但不支持Vega和Rho计算
+            engine = ql.BinomialCRRVanillaEngine(bsm_process, 200)  # 增加步数提高精度
         else:
             # 欧式期权使用解析解
             engine = ql.AnalyticEuropeanEngine(bsm_process)
 
+        option.setPricingEngine(engine)
+
+        return OptionWrapper(option, bsm_process)
+
+    def _create_fd_american_option(
+        self, option_type, underlying, strike, risk_free_rate,
+        dividend_rate, volatility, settlement_date, expiration_date
+    ):
+        """
+        使用有限差分方法创建美式期权
+
+        这个方法实现了类似Tiger FDAmericanDividendOptionHelper的功能，
+        使用QuantLib的有限差分引擎。
+
+        注意：有限差分引擎不支持Vega和Rho的计算，
+        如果需要这些希腊字母，请使用二叉树方法。
+        """
+        # 创建标的资产价格
+        spot_handle = ql.QuoteHandle(ql.SimpleQuote(underlying))
+
+        # 创建利率曲线
+        risk_free_ts = ql.YieldTermStructureHandle(
+            ql.FlatForward(settlement_date, risk_free_rate, ql.Actual365Fixed())
+        )
+
+        # 创建股息率曲线
+        dividend_ts = ql.YieldTermStructureHandle(
+            ql.FlatForward(settlement_date, dividend_rate, ql.Actual365Fixed())
+        )
+
+        # 创建波动率曲线
+        volatility_ts = ql.BlackVolTermStructureHandle(
+            ql.BlackConstantVol(settlement_date, ql.NullCalendar(), volatility, ql.Actual365Fixed())
+        )
+
+        # 创建Black-Scholes过程
+        bsm_process = ql.BlackScholesMertonProcess(
+            spot_handle, dividend_ts, risk_free_ts, volatility_ts
+        )
+
+        # 创建期权payoff
+        payoff = ql.PlainVanillaPayoff(option_type, strike)
+
+        # 创建美式行权条件
+        exercise = ql.AmericanExercise(settlement_date, expiration_date)
+
+        # 创建期权
+        option = ql.VanillaOption(payoff, exercise)
+
+        # 使用有限差分引擎
+        # 参数：时间步数=100, 空间步数=100
+        engine = ql.FdBlackScholesVanillaEngine(bsm_process, 100, 100)
         option.setPricingEngine(engine)
 
         return OptionWrapper(option, bsm_process)
