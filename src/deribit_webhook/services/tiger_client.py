@@ -913,11 +913,13 @@ class TigerClient:
                                   order_id=order_id,
                                   current_state=original_order_state.get("order_state"))
                 return None
+            
+            tiger_order = self.trade_client.get_order(account=self.client_config.account, id=order_id)
 
             # 使用Tiger API修改订单
             result = self.trade_client.modify_order(
-                account=self.client_config.account,
-                order_id=order_id,
+                # account=self.client_config.account,
+                order=tiger_order,
                 quantity=int(amount),
                 limit_price=float(new_price)
             )
