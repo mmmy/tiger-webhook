@@ -6,6 +6,7 @@ Tiger Brokers API客户端
 
 import os
 import math
+import time
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
@@ -55,6 +56,10 @@ class TigerClient:
         self._expirations_cache_ttl_sec: int = 60
         self._underlyings_cache: Dict[str, Dict[str, Any]] = {}
         self._underlyings_cache_ttl_sec: int = 300
+
+        # 标的价格缓存：避免短时间内重复API调用
+        self._underlying_price_cache: Dict[str, Dict[str, Any]] = {}
+        self._underlying_price_cache_ttl_sec: int = 60  # 1分钟有效期
 
 
     # --- helpers ------------------------------------------------------------
@@ -170,10 +175,12 @@ class TigerClient:
         if underlying_symbol:
             self._instruments_cache.pop(underlying_symbol.upper(), None)
             self._expirations_cache.pop(underlying_symbol.upper(), None)
+            self._underlying_price_cache.pop(underlying_symbol.upper(), None)
             return
         self._instruments_cache.clear()
         self._expirations_cache.clear()
         self._underlyings_cache.clear()
+        self._underlying_price_cache.clear()
 
     async def get_option_underlyings(
         self,
@@ -348,12 +355,12 @@ class TigerClient:
                     return []
 
                 self.logger.debug("处理单一到期日", expiry_timestamp_ms=expiry_ts_ms)
-                option_chain = self.quote_client.get_option_chain(symbol, int(expiry_ts_ms), return_greek_value=True)
+                option_chain = await self.get_option_chain(symbol, int(expiry_ts_ms))
 
                 if option_chain is None or len(option_chain) == 0:
                     self.logger.warning("⚠️ 指定到期日没有期权数据")
                 else:
-                    for _, option in option_chain.iterrows():
+                    for option in option_chain:
                         tiger_option = self._prepare_tiger_option_data(option, symbol)
                         if tiger_option:
                             all_options.append(tiger_option)
@@ -374,14 +381,14 @@ class TigerClient:
                     self.logger.debug("处理到期日", expiry_date=expiry_date)
 
                     # 获取期权链
-                    option_chain = self.quote_client.get_option_chain(symbol, int(expiry_ts or 0))
+                    option_chain = await self.get_option_chain(symbol, int(expiry_ts or 0))
 
                     if option_chain is None or len(option_chain) == 0:
                         self.logger.warning("⚠️ 到期日没有期权数据", expiry_date=expiry_date)
                         continue
 
                     # 直接使用Tiger格式，保留所有原始数据
-                    for _, option in option_chain.iterrows():
+                    for option in option_chain:
                         tiger_option = self._prepare_tiger_option_data(option, symbol)
                         if tiger_option:
                             all_options.append(tiger_option)
@@ -608,11 +615,11 @@ class TigerClient:
             for ts, date_str, abs_diff in rows:
                 days_diff = abs_diff / (24 * 3600 * 1000)  # Convert to days for logging
                 print(f"   处理到期日: {date_str} (距离目标 {days_diff:.1f} 天)")
-                option_chain = self.quote_client.get_option_chain(symbol, ts, return_greek_value=True)
+                option_chain = await self.get_option_chain(symbol, ts)
                 if option_chain is None or len(option_chain) == 0:
                     print(f"   ⚠️ 到期日 {date_str} 没有期权数据")
                     continue
-                for _, option in option_chain.iterrows():
+                for option in option_chain:
                     # 直接使用Tiger期权链数据，添加必要的兼容性字段
                     tiger_option = self._prepare_tiger_option_data(option, symbol)
                     if tiger_option:
@@ -623,6 +630,225 @@ class TigerClient:
         except Exception as error:
             print(f"❌ Failed to get instruments (target_days): {error}")
             return []
+        
+    async def get_option_chain(self, underlying_symbol: str, expiry_timestamp: int) -> List[Dict]:
+        """获取指定到期日的期权链，并计算希腊字母"""
+        await self.ensure_quote_client()
+
+        symbol = underlying_symbol.upper()
+        option_chain = self.quote_client.get_option_chain(symbol, expiry_timestamp)
+        if option_chain is None or len(option_chain) == 0:
+            return []
+
+        # 导入期权计算器
+        try:
+            from deribit_webhook.utils.option_calculator import calculate_option_greeks
+        except ImportError:
+            self.logger.warning("期权计算器不可用，将跳过希腊字母计算")
+            calculate_option_greeks = None
+
+        result_options = []
+
+        for _, option in option_chain.iterrows():
+            option_data = option.to_dict()
+
+            # 如果期权计算器可用且有必要的数据，计算希腊字母
+            # todo: option中没有underlying_price字段, 请看: https://quant.itigerup.com/openapi/zh/python/operation/quotation/option.html#get-option-chain-%E8%8E%B7%E5%8F%96%E6%9C%9F%E6%9D%83%E9%93%BE
+            # 问题: latest_price是不是underlying_price?
+            if calculate_option_greeks and self._has_required_option_data(option_data):
+                try:
+                    calculated_greeks = await self._calculate_option_greeks_for_chain(
+                        option_data, underlying_symbol, expiry_timestamp
+                    )
+                    if calculated_greeks:
+                        # 将计算的希腊字母添加到期权数据中
+                        option_data.update({
+                            'calculated_delta': calculated_greeks.get('delta'),
+                            'calculated_gamma': calculated_greeks.get('gamma'),
+                            'calculated_theta': calculated_greeks.get('theta'),
+                            'calculated_vega': calculated_greeks.get('vega'),
+                            'calculated_rho': calculated_greeks.get('rho'),
+                            'calculated_value': calculated_greeks.get('value'),
+                            'calculation_method': 'quantlib'
+                        })
+                except Exception as e:
+                    self.logger.warning(f"计算期权希腊字母失败: {e}", option_identifier=option_data.get('identifier'))
+
+            result_options.append(option_data)
+
+        return result_options
+
+    def _has_required_option_data(self, option_data: Dict) -> bool:
+        """检查期权数据是否包含计算希腊字母所需的字段"""
+        required_fields = [
+            'strike',           # 行权价
+            'implied_vol',      # 隐含波动率
+            'put_call',         # 期权类型
+            'expiry'            # 到期时间戳
+        ]
+
+        for field in required_fields:
+            if field not in option_data or option_data[field] is None:
+                return False
+
+        # 检查数值字段是否为有效数值
+        numeric_fields = ['strike', 'implied_vol']
+        for field in numeric_fields:
+            try:
+                float(option_data[field])
+            except (ValueError, TypeError):
+                return False
+
+        return True
+
+    async def _calculate_option_greeks_for_chain(
+        self, option_data: Dict, underlying_symbol: str, expiry_timestamp: int
+    ) -> Optional[Dict]:
+        """为期权链中的单个期权计算希腊字母"""
+        try:
+            from deribit_webhook.utils.option_calculator import calculate_option_greeks
+            from datetime import datetime, date
+
+            # 获取标的价格（期权数据中没有underlying_price字段）
+            underlying_price = await self._get_underlying_price(underlying_symbol)
+            if underlying_price is None:
+                self.logger.warning(f"无法获取标的价格: {underlying_symbol}")
+                return None
+
+            # 提取期权参数
+            strike_price = float(option_data['strike'])
+            implied_vol = float(option_data['implied_vol'])
+
+            # 确定期权类型
+            put_call = option_data.get('put_call', '').upper()
+            if put_call in ['CALL', 'C']:
+                option_type = 'call'
+            elif put_call in ['PUT', 'P']:
+                option_type = 'put'
+            else:
+                self.logger.warning(f"未知的期权类型: {put_call}")
+                return None
+
+            # 转换到期时间戳为日期
+            expiry_date = datetime.fromtimestamp(expiry_timestamp / 1000).date()
+            settlement_date = date.today()
+
+            # 使用默认的无风险利率和股息率
+            # 在实际应用中，这些值应该从市场数据获取
+            risk_free_rate = 0.05  # 5% 默认无风险利率
+            dividend_rate = 0.0    # 0% 默认股息率
+
+            # 计算希腊字母
+            greeks = calculate_option_greeks(
+                option_type=option_type,
+                underlying_price=underlying_price,
+                strike_price=strike_price,
+                risk_free_rate=risk_free_rate,
+                volatility=implied_vol,
+                settlement_date=settlement_date.strftime('%Y-%m-%d'),
+                expiration_date=expiry_date.strftime('%Y-%m-%d'),
+                dividend_rate=dividend_rate,
+                option_style='american'  # 假设为美式期权
+            )
+
+            # 将标的价格添加到结果中
+            greeks['underlying_price'] = underlying_price
+
+            return greeks
+
+        except Exception as e:
+            self.logger.error(f"计算期权希腊字母时发生错误: {e}")
+            return None
+
+    async def _get_underlying_price(self, underlying_symbol: str) -> Optional[float]:
+        """获取标的资产的当前价格
+
+        使用get_stock_briefs接口获取股票的latest_price字段，
+        这个字段是股票的最新价格，也就是期权的标的价格。
+
+        实现1分钟缓存机制，避免短时间内重复API调用。
+        """
+        try:
+            # 检查缓存
+            cache_key = underlying_symbol.upper()
+            current_time = time.time()
+
+            if cache_key in self._underlying_price_cache:
+                cache_entry = self._underlying_price_cache[cache_key]
+                cache_time = cache_entry.get('timestamp', 0)
+                cache_price = cache_entry.get('price')
+
+                # 检查缓存是否在有效期内（1分钟）
+                if current_time - cache_time < self._underlying_price_cache_ttl_sec:
+                    if cache_price is not None:
+                        self.logger.debug(f"从缓存获取标的价格: {underlying_symbol} = ${cache_price:.2f} (缓存时间: {current_time - cache_time:.1f}秒前)")
+                        return cache_price
+
+            await self.ensure_quote_client()
+
+            # 尝试多种方法获取标的价格
+            underlying_price = None
+
+            # 方法1: 使用get_stock_briefs (实时行情，需要权限)
+            try:
+                brief = self.quote_client.get_stock_briefs([underlying_symbol])
+                if brief is not None and len(brief) > 0:
+                    latest_price = brief.iloc[0].get('latest_price')
+                    if latest_price is not None:
+                        underlying_price = float(latest_price)
+                        # 存储到缓存
+                        self._underlying_price_cache[cache_key] = {
+                            'price': underlying_price,
+                            'timestamp': current_time,
+                            'method': 'get_stock_briefs'
+                        }
+                        self.logger.debug(f"通过get_stock_briefs获取到标的价格: {underlying_symbol} = ${underlying_price:.2f}")
+                        return underlying_price
+            except Exception as e:
+                self.logger.warning(f"get_stock_briefs失败: {e}")
+
+            # 方法2: 使用get_stock_delay_briefs (延迟行情，免费)
+            try:
+                delay_brief = self.quote_client.get_stock_delay_briefs([underlying_symbol])
+                if delay_brief is not None and len(delay_brief) > 0:
+                    close_price = delay_brief.iloc[0].get('close')
+                    if close_price is not None:
+                        underlying_price = float(close_price)
+                        # 存储到缓存
+                        self._underlying_price_cache[cache_key] = {
+                            'price': underlying_price,
+                            'timestamp': current_time,
+                            'method': 'get_stock_delay_briefs'
+                        }
+                        self.logger.debug(f"通过get_stock_delay_briefs获取到标的价格: {underlying_symbol} = ${underlying_price:.2f}")
+                        return underlying_price
+            except Exception as e:
+                self.logger.warning(f"get_stock_delay_briefs失败: {e}")
+
+            # 方法3: 使用get_bars获取最新K线数据
+            try:
+                bars = self.quote_client.get_bars([underlying_symbol], limit=1)
+                if bars is not None and len(bars) > 0:
+                    close_price = bars.iloc[0].get('close')
+                    if close_price is not None:
+                        underlying_price = float(close_price)
+                        # 存储到缓存
+                        self._underlying_price_cache[cache_key] = {
+                            'price': underlying_price,
+                            'timestamp': current_time,
+                            'method': 'get_bars'
+                        }
+                        self.logger.debug(f"通过get_bars获取到标的价格: {underlying_symbol} = ${underlying_price:.2f}")
+                        return underlying_price
+            except Exception as e:
+                self.logger.warning(f"get_bars失败: {e}")
+
+            self.logger.error(f"所有方法都无法获取标的价格: {underlying_symbol}")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"获取标的价格时发生错误: {e}")
+            return None
 
     async def get_instruments_min_days(self, underlying_symbol: str, min_expired_days: int, take_expirations: int = 1) -> List[Dict]:
         """获取满足最小到期天数的有限期权链，减少接口调用以避免限流
