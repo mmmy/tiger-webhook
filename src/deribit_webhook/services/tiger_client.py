@@ -954,9 +954,8 @@ class TigerClient:
             await self._ensure_clients(account_name)
 
             # 获取所有未成交订单
-            orders = self.trade_client.get_orders(
+            orders = self.trade_client.get_open_orders(
                 account=self.client_config.account,
-                status='NEW'  # 只获取新订单状态
             )
 
             if not orders:
