@@ -15,10 +15,11 @@ from tigeropen.quote.quote_client import QuoteClient
 from tigeropen.trade.trade_client import TradeClient
 from tigeropen.push.push_client import PushClient
 from tigeropen.common.util.signature_utils import read_private_key
-from tigeropen.common.consts import Language, Market
+from tigeropen.common.consts import Language, Market, SecurityType
 from tigeropen.common.util.contract_utils import option_contract, stock_contract
 from tigeropen.common.util.order_utils import market_order, limit_order
 from tigeropen.common.exceptions import ApiException
+from tigeropen.trade.domain.position import Position
 
 from types import SimpleNamespace
 
@@ -54,6 +55,45 @@ class TigerClient:
         self._expirations_cache_ttl_sec: int = 60
         self._underlyings_cache: Dict[str, Dict[str, Any]] = {}
         self._underlyings_cache_ttl_sec: int = 300
+
+
+    # --- helpers ------------------------------------------------------------
+    def _get(self, obj: Any, key: str, default: Any = None) -> Any:
+        """Safely get attr/key from dict or object."""
+        try:
+            if obj is None:
+                return default
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+        except Exception:
+            return default
+
+    def _to_dict(self, obj: Any) -> Dict[str, Any]:
+        """Best-effort convert an object to dict."""
+        if obj is None:
+            return {}
+        if isinstance(obj, dict):
+            return obj
+        if hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
+            try:
+                d = obj.to_dict()
+                if isinstance(d, dict):
+                    return d
+            except Exception:
+                pass
+        result: Dict[str, Any] = {}
+        for name in dir(obj):
+            if name.startswith('_'):
+                continue
+            try:
+                value = getattr(obj, name)
+            except Exception:
+                continue
+            if callable(value):
+                continue
+            result[name] = value
+        return result
 
     async def close(self):
         """关闭所有客户端连接"""
@@ -1042,71 +1082,17 @@ class TigerClient:
         try:
             await self._ensure_clients(account_name)
 
-            raw_positions = self.trade_client.get_positions(account=self.client_config.account)
+            raw_positions = self.trade_client.get_positions(account=self.client_config.account, sec_type=SecurityType.OPT)
             if raw_positions is None:
                 return []
 
-            records: List[Dict[str, Any]] = []
-
-            if hasattr(raw_positions, 'iterrows'):
-                for _, row in raw_positions.iterrows():
-                    if hasattr(row, 'to_dict'):
-                        records.append(row.to_dict())
-                    else:
-                        try:
-                            records.append(dict(row))
-                        except Exception:
-                            continue
-            elif isinstance(raw_positions, list):
-                for item in raw_positions:
-                    if hasattr(item, 'to_dict'):
-                        records.append(item.to_dict())
-                    elif isinstance(item, dict):
-                        records.append(item)
-                    else:
-                        try:
-                            records.append(dict(item))
-                        except Exception:
-                            continue
-            elif hasattr(raw_positions, 'to_dict'):
-                try:
-                    records = raw_positions.to_dict('records')  # type: ignore[arg-type]
-                except Exception:
-                    pass
-            elif isinstance(raw_positions, dict):
-                records = [raw_positions]
-
-            if not records and raw_positions is not None:
-                try:
-                    for item in raw_positions:  # type: ignore[arg-type]
-                        if hasattr(item, 'to_dict'):
-                            records.append(item.to_dict())
-                        elif isinstance(item, dict):
-                            records.append(item)
-                except Exception:
-                    pass
-
             deribit_positions = []
-            for position in records:
-                if not isinstance(position, dict):
-                    continue
-
-                # 兼容不同SDK/返回结构的期权标识：
-                sec_type = str(position.get('sec_type', '')).upper()
-                contract = position.get('contract', {}) or {}
-                right = str(contract.get('right', '')).upper()
-                is_option = (
-                    sec_type.startswith('OPT')  # 'OPT', 'OPTS', etc.
-                    or right in {'CALL', 'PUT'}  # 合约中包含期权方向
-                )
-                if not is_option:
-                    continue
-
+            for position in raw_positions:
                 deribit_position = self._convert_tiger_position_to_deribit(position)
                 if deribit_position:
                     deribit_positions.append(deribit_position)
 
-            self.logger.debug("✅ 获取期权持仓", total=len(records), options=len(deribit_positions))
+            self.logger.debug("✅ 获取期权持仓", total=len(deribit_positions), options=len(deribit_positions))
             return deribit_positions
 
         except Exception as error:
@@ -1299,29 +1285,79 @@ class TigerClient:
         except Exception as error:
             print(f"❌ Failed to convert order response: {error}")
             return None
+    def _convert_tiger_position_to_deribit(self, tiger_position: Position) -> Optional[Dict]:
+        """将 Tiger 的 Position 对象转换为内部使用的 DeribitPosition 字典结构。
 
-    def _convert_tiger_position_to_deribit(self, tiger_position: Any) -> Optional[Dict]:
-        """转换Tiger持仓为Deribit格式"""
+        参考 Tiger 文档: get_positions 返回的 Position 属性包括:
+        - contract, quantity, average_cost, market_price, market_value,
+          realized_pnl, unrealized_pnl, ...
+        Greeks 通常不在 Position 上，若可获取则尽量读取；否则置为 None。
+        """
         try:
-            # 转换标识符
-            tiger_symbol = tiger_position.get('contract', {}).get('identifier', '')
+            # 合约与标识符（例如："QQQ   250925C00603000"）
+            contract = self._get(tiger_position, 'contract', None)
+            tiger_symbol = (
+                self._get(contract, 'identifier', '')
+                or self._get(contract, 'symbol', '')
+                or self._get(tiger_position, 'symbol', '')
+            )
             if not tiger_symbol:
                 return None
 
             deribit_symbol = self.symbol_converter.tiger_to_deribit(tiger_symbol)
 
+            # 基础数值
+            qty = float(self._get(tiger_position, 'quantity', 0) or 0)
+            avg_cost = float(self._get(tiger_position, 'average_cost', 0) or 0)
+            mark_price = float(self._get(tiger_position, 'market_price', 0) or 0)
+            market_value = float(self._get(tiger_position, 'market_value', 0) or 0)
+            realized = float(self._get(tiger_position, 'realized_pnl', 0) or 0)
+            unrealized = float(self._get(tiger_position, 'unrealized_pnl', 0) or 0)
+            total_pl = realized + unrealized
+
+            # Greeks（如果可以取得）
+            greeks_obj = (
+                self._get(tiger_position, 'greeks', None)
+                or self._get(tiger_position, 'option_greeks', None)
+                or self._get(contract, 'greeks', None)
+            )
+            delta = float(self._get(greeks_obj, 'delta', None)) if greeks_obj and self._get(greeks_obj, 'delta', None) is not None else None
+            gamma = float(self._get(greeks_obj, 'gamma', None)) if greeks_obj and self._get(greeks_obj, 'gamma', None) is not None else None
+            theta = float(self._get(greeks_obj, 'theta', None)) if greeks_obj and self._get(greeks_obj, 'theta', None) is not None else None
+            vega = float(self._get(greeks_obj, 'vega', None)) if greeks_obj and self._get(greeks_obj, 'vega', None) is not None else None
+
+            # 组装为 DeribitPosition 所需字段（必填字段全部给出）
             return {
-                "instrument_name": deribit_symbol,
-                "size": float(tiger_position.get('quantity', 0)),
-                "direction": "buy" if float(tiger_position.get('quantity', 0)) > 0 else "sell",
-                "average_price": float(tiger_position.get('average_cost', 0)),
-                "mark_price": float(tiger_position.get('market_price', 0)),
-                "delta": float(tiger_position.get('delta', 0)),
-                "gamma": float(tiger_position.get('gamma', 0)),
-                "theta": float(tiger_position.get('theta', 0)),
-                "vega": float(tiger_position.get('vega', 0)),
-                "floating_profit_loss": float(tiger_position.get('unrealized_pnl', 0)),
-                "realized_profit_loss": float(tiger_position.get('realized_pnl', 0))
+                "instrument_name": tiger_symbol,
+                "size": qty,
+                "direction": "buy" if qty > 0 else "sell",
+                "average_price": avg_cost,
+                "mark_price": mark_price,
+                "unrealized_pnl": unrealized,
+                "realized_pnl": realized,
+                "total_profit_loss": total_pl,
+                # Tiger Position 未提供保证金细项，这里置 0
+                "maintenance_margin": 0.0,
+                "initial_margin": 0.0,
+                # 可选/推断字段
+                "index_price": None,
+                "estimated_liquidation_price": None,
+                "settlement_price": None,
+                "delta": delta,
+                "gamma": gamma,
+                "theta": theta,
+                "vega": vega,
+                # 兼容字段（与 unrealized_pnl 含义一致）
+                "floating_profit_loss": unrealized,
+                "floating_profit_loss_usd": None,
+                # 当前系统仅处理期权
+                "kind": "option",
+                # 其余可选字段
+                "leverage": None,
+                "open_orders_margin": None,
+                "interest_value": None,
+                "size_currency": market_value if market_value else None,
+                "average_price_usd": None,
             }
 
         except Exception as error:
