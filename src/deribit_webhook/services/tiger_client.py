@@ -781,15 +781,17 @@ class TigerClient:
                             implied_vol = calculated_vol
                             # self.logger.info(f"重新计算的隐含波动率: {implied_vol:.4f}")
                         else:
-                            self.logger.warning(f"无法计算隐含波动率，使用默认值20%")
-                            implied_vol = 0.20  # 使用20%作为默认波动率
+                            self.logger.warning(f"无法计算隐含波动率")
+                            implied_vol = None  # 使用20%作为默认波动率
                     except Exception as e:
-                        self.logger.warning(f"计算隐含波动率失败: {e}，使用默认值20%")
-                        implied_vol = 0.20
+                        self.logger.warning(f"计算隐含波动率失败: {e}")
+                        implied_vol = None
                 else:
-                    self.logger.warning(f"无市场价格数据，使用默认波动率20%")
-                    implied_vol = 0.20
+                    self.logger.warning(f"无市场价格数据")
+                    implied_vol = None
 
+            if implied_vol is None:
+                return None
             # 计算希腊字母
             greeks = calculate_option_greeks(
                 option_type=option_type,
@@ -874,7 +876,7 @@ class TigerClient:
                 expiration_date=expiry_date.strftime('%Y-%m-%d'),
                 option_style='american'  # 假设为美式期权
             )
-
+            return implied_vol
             # 验证计算结果的合理性
             if implied_vol and 0.005 <= implied_vol <= 5.0:  # 0.5%到500%的合理范围
                 return implied_vol
