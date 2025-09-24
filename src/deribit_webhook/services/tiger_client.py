@@ -297,6 +297,11 @@ class TigerClient:
                 continue
 
             days_left = max(0, int((ts_ms - now_ms) / (24 * 3600 * 1000)))
+
+            # 过滤掉已到期的日期（只保留未来的到期日）
+            if ts_ms <= now_ms:
+                continue  # 跳过已到期的日期
+
             expirations.append({
                 "timestamp": ts_ms,
                 "date": row.get('date') or datetime.fromtimestamp(ts_ms / 1000).strftime('%Y-%m-%d'),
@@ -732,14 +737,58 @@ class TigerClient:
             expiry_date = datetime.fromtimestamp(expiry_timestamp / 1000).date()
             settlement_date = date.today()
 
+            # 检查期权是否已过期
+            if expiry_date < settlement_date:
+                self.logger.warning(f"期权已过期，无法计算希腊字母: 到期日期 {expiry_date} < 今天 {settlement_date}")
+                return None
+
+            # 确保结算日期不等于到期日期（避免美式期权的日期冲突）
+            if settlement_date >= expiry_date:
+                # 如果期权今天到期，将结算日期设为昨天
+                settlement_date = expiry_date - timedelta(days=1)
+                self.logger.warning(f"期权今天到期，调整结算日期: {settlement_date} -> 到期日期: {expiry_date}")
+
+                # 再次检查调整后的日期是否合理
+                if settlement_date >= expiry_date:
+                    self.logger.warning(f"无法找到合适的结算日期，跳过计算")
+                    return None
+
             # 使用默认的无风险利率和股息率
             # 在实际应用中，这些值应该从市场数据获取
             risk_free_rate = 0.05  # 5% 默认无风险利率
             dividend_rate = 0.0    # 0% 默认股息率
 
             implied_vol = float(option_data['implied_vol'])
-            # todo: implied_vol=0 要重新计算
-            
+
+            # 如果隐含波动率为0或接近0，尝试从期权价格重新计算
+            if implied_vol <= 0.001:  # 小于0.1%认为是无效值
+                market_price = option_data.get('latest_price')
+                if market_price and float(market_price) > 0:
+                    try:
+                        self.logger.info(f"隐含波动率为0，尝试从市场价格重新计算: {market_price}")
+                        calculated_vol = await self._calculate_implied_volatility(
+                            option_type=option_type,
+                            underlying_price=underlying_price,
+                            strike_price=strike_price,
+                            risk_free_rate=risk_free_rate,
+                            dividend_rate=dividend_rate,
+                            market_price=float(market_price),
+                            settlement_date=settlement_date,
+                            expiry_date=expiry_date
+                        )
+                        if calculated_vol and calculated_vol > 0:
+                            implied_vol = calculated_vol
+                            self.logger.info(f"重新计算的隐含波动率: {implied_vol:.4f}")
+                        else:
+                            self.logger.warning(f"无法计算隐含波动率，使用默认值20%")
+                            implied_vol = 0.20  # 使用20%作为默认波动率
+                    except Exception as e:
+                        self.logger.warning(f"计算隐含波动率失败: {e}，使用默认值20%")
+                        implied_vol = 0.20
+                else:
+                    self.logger.warning(f"无市场价格数据，使用默认波动率20%")
+                    implied_vol = 0.20
+
             # 计算希腊字母
             greeks = calculate_option_greeks(
                 option_type=option_type,
@@ -760,6 +809,46 @@ class TigerClient:
 
         except Exception as e:
             self.logger.error(f"计算期权希腊字母时发生错误: {e}")
+            return None
+
+    async def _calculate_implied_volatility(
+        self, option_type: str, underlying_price: float, strike_price: float,
+        risk_free_rate: float, dividend_rate: float, market_price: float,
+        settlement_date, expiry_date
+    ) -> Optional[float]:
+        """
+        根据期权市场价格计算隐含波动率
+
+        参考Tiger API文档的实现方式，使用期权计算器来反推波动率
+        """
+        try:
+            from deribit_webhook.utils.option_calculator import calculate_implied_volatility
+
+            self.logger.debug(f"计算隐含波动率参数: 类型={option_type}, 标的={underlying_price}, "
+                            f"行权价={strike_price}, 市场价格={market_price}")
+
+            # 使用期权计算器计算隐含波动率
+            implied_vol = calculate_implied_volatility(
+                option_type=option_type,
+                underlying_price=underlying_price,
+                strike_price=strike_price,
+                risk_free_rate=risk_free_rate,
+                dividend_rate=dividend_rate,
+                option_price=market_price,  # 参数名是option_price，不是market_price
+                settlement_date=settlement_date.strftime('%Y-%m-%d'),
+                expiration_date=expiry_date.strftime('%Y-%m-%d'),
+                option_style='american'  # 假设为美式期权
+            )
+
+            # 验证计算结果的合理性
+            if implied_vol and 0.01 <= implied_vol <= 3.0:  # 1%到300%的合理范围
+                return implied_vol
+            else:
+                self.logger.warning(f"计算的隐含波动率超出合理范围: {implied_vol}")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"计算隐含波动率时发生错误: {e}")
             return None
 
     async def _get_underlying_price(self, underlying_symbol: str) -> Optional[float]:

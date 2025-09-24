@@ -81,7 +81,8 @@ document.addEventListener('DOMContentLoaded', () => {
             option.strike != null ? Number(option.strike).toFixed(2) : '-',
             formatExpiry(option.expiration_timestamp),
             formatDaysToExpiry(option.expiration_timestamp),
-            option.delta != null ? Number(option.delta).toFixed(3) : '-',
+            option.calculated_delta != null ? Number(option.calculated_delta).toFixed(3) :
+                (option.delta != null ? Number(option.delta).toFixed(3) : '-'),
             option.underlying_price != null ? Number(option.underlying_price).toFixed(2) : '-',
             option.currency || 'USD'
         ];
