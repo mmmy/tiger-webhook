@@ -789,7 +789,6 @@ class TigerClient:
                 else:
                     self.logger.warning(f"无市场价格数据")
                     implied_vol = None
-
             if implied_vol is None:
                 return None
             # 计算希腊字母
