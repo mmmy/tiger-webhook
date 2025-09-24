@@ -504,6 +504,7 @@ class TigerClient:
             options_without_delta = []
 
             for option in filtered_options:
+                # 这里
                 option_delta = option.get('delta')
                 if option_delta is not None and option_delta != "":
                     try:
@@ -765,7 +766,7 @@ class TigerClient:
                 market_price = option_data.get('latest_price')
                 if market_price and float(market_price) > 0:
                     try:
-                        self.logger.info(f"隐含波动率为0，尝试从市场价格重新计算: {market_price}")
+                        # self.logger.info(f"隐含波动率为0，尝试从市场价格重新计算: {market_price}")
                         calculated_vol = await self._calculate_implied_volatility(
                             option_type=option_type,
                             underlying_price=underlying_price,
@@ -778,7 +779,7 @@ class TigerClient:
                         )
                         if calculated_vol and calculated_vol > 0:
                             implied_vol = calculated_vol
-                            self.logger.info(f"重新计算的隐含波动率: {implied_vol:.4f}")
+                            # self.logger.info(f"重新计算的隐含波动率: {implied_vol:.4f}")
                         else:
                             self.logger.warning(f"无法计算隐含波动率，使用默认值20%")
                             implied_vol = 0.20  # 使用20%作为默认波动率
