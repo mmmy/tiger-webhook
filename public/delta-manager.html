@@ -294,6 +294,17 @@
             font-weight: bold;
         }
 
+        .delta-loading {
+            color: #4299e1;
+            font-style: italic;
+            animation: pulse 1.5s ease-in-out infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { opacity: 0.6; }
+            to { opacity: 1; }
+        }
+
         .action-badge {
             display: inline-block;
             padding: 4px 8px;
@@ -667,6 +678,7 @@
                                 <th>数量</th>
                                 <th>目标Delta</th>
                                 <th>移仓Delta</th>
+                                <th>Delta</th>
                                 <th>最小到期天数</th>
                                 <th>TV_ID</th>
                                 <th>动作</th>
@@ -726,7 +738,6 @@
                                     <th>平均价格</th>
                                     <th>标记价格</th>
                                     <th>Delta</th>
-                                    <th>Delta平均值</th>
                                     <th>操作</th>
                                 </tr>
                             </thead>
@@ -855,9 +866,9 @@
 
                 // 更新界面
                 updateStats(recordsData, statsData.stats);
-                updatePositionRecordsTable();
+                await updatePositionRecordsTable();
                 updateOrderRecordsTable();
-                updatePositionsTable();
+                await updatePositionsTable();
                 updateOrdersTable();
 
                 hideLoading();
@@ -905,7 +916,7 @@
 
             try {
                 await loadLiveData();
-                updatePositionsTable();
+                await updatePositionsTable();
                 updateOrdersTable();
                 showSuccess('实时数据刷新成功');
             } catch (error) {
@@ -925,34 +936,54 @@
         }
 
         // 更新仓位记录表格
-        function updatePositionRecordsTable() {
+        async function updatePositionRecordsTable() {
             const tbody = document.querySelector('#positionRecordsTable tbody');
             tbody.innerHTML = '';
 
             const positionRecords = validatedRecords.filter(record => record.record_type === 'position');
 
-            positionRecords.forEach(record => {
+            if (positionRecords.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="11" style="text-align: center; color: #7f8c8d;">暂无仓位记录</td>';
+                tbody.appendChild(row);
+                return;
+            }
+
+            // 为每个仓位记录创建行，并异步获取Delta值
+            for (const record of positionRecords) {
                 const row = document.createElement('tr');
 
                 const targetDeltaClass = record.target_delta >= 0 ? 'delta-positive' : 'delta-negative';
                 const movePositionDeltaClass = (record.move_position_delta || 0) >= 0 ? 'delta-positive' : 'delta-negative';
 
                 // 检查同步状态：数据库记录是否在实际仓位中存在
-                const hasLivePosition = livePositions.some(position =>
+                const livePosition = livePositions.find(position =>
                     position.instrument_name === record.instrument_name &&
                     Math.abs(position.size) > 0
                 );
+                const hasLivePosition = !!livePosition;
 
                 const combinedStatus = hasLivePosition ?
                     '<span class="status-normal">🟢 正常</span>' :
                     '<span class="status-abnormal">🔴 不存在</span>';
 
+                // 根据状态决定数量显示：正常状态显示实际仓位数量，否则显示数据库记录数量
+                const displayAmount = hasLivePosition ?
+                    Math.abs(livePosition.size) :
+                    (record.amount || '-');
+
+                // 根据状态决定Delta列的内容
+                const deltaContent = hasLivePosition ?
+                    '<td class="delta-loading">🔄 计算中...</td>' :
+                    '<td style="color: #7f8c8d;">-</td>';
+
                 row.innerHTML = `
                     <td>${combinedStatus}</td>
                     <td>${record.instrument_name}</td>
-                    <td>${record.amount || '-'}</td>
+                    <td>${displayAmount}</td>
                     <td class="${targetDeltaClass}">${record.target_delta.toFixed(4)}</td>
                     <td class="${movePositionDeltaClass}">${(record.move_position_delta || 0).toFixed(4)}</td>
+                    ${deltaContent}
                     <td>${record.min_expire_days || '-'}</td>
                     <td>${record.tv_id || '-'}</td>
                     <td>${record.action || '-'}</td>
@@ -966,12 +997,29 @@
                     </td>
                 `;
                 tbody.appendChild(row);
-            });
 
-            if (positionRecords.length === 0) {
-                const row = document.createElement('tr');
-                row.innerHTML = '<td colspan="10" style="text-align: center; color: #7f8c8d;">暂无仓位记录</td>';
-                tbody.appendChild(row);
+                // 只有状态为"正常"时才异步获取Delta值
+                if (hasLivePosition) {
+                    fetchOptionDelta(record.instrument_name).then(calculatedDelta => {
+                        const deltaCell = row.querySelector('.delta-loading');
+
+                        if (calculatedDelta !== null) {
+                            const deltaClass = calculatedDelta >= 0 ? 'delta-positive' : 'delta-negative';
+                            const deltaText = calculatedDelta.toFixed(4);
+
+                            deltaCell.className = deltaClass;
+                            deltaCell.textContent = deltaText;
+                        } else {
+                            deltaCell.className = '';
+                            deltaCell.textContent = '-';
+                        }
+                    }).catch(error => {
+                        console.error(`更新 ${record.instrument_name} Delta失败:`, error);
+                        const deltaCell = row.querySelector('.delta-loading');
+                        deltaCell.className = '';
+                        deltaCell.textContent = '❌ 失败';
+                    });
+                }
             }
         }
 
@@ -1027,8 +1075,27 @@
             }
         }
 
+        // 获取期权Delta值
+        async function fetchOptionDelta(instrumentName) {
+            try {
+                const params = new URLSearchParams({
+                    option_name: instrumentName
+                });
+                const response = await fetch(`/api/tiger/options/delta?${params}`);
+                const data = await response.json();
+
+                if (response.ok && data.success && data.delta !== null) {
+                    return data.delta;
+                }
+                return null;
+            } catch (error) {
+                console.warn(`获取 ${instrumentName} Delta失败:`, error);
+                return null;
+            }
+        }
+
         // 更新实际仓位表格
-        function updatePositionsTable() {
+        async function updatePositionsTable() {
             const tbody = document.querySelector('#positionsTable tbody');
             tbody.innerHTML = '';
 
@@ -1040,21 +1107,27 @@
                 );
             });
 
-            unrecordedPositions.forEach(position => {
+            if (unrecordedPositions.length === 0) {
                 const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="7" style="text-align: center; color: #7f8c8d;">所有仓位都已记录在数据库中</td>';
+                tbody.appendChild(row);
+                return;
+            }
 
-                const deltaClass = position.delta >= 0 ? 'delta-positive' : 'delta-negative';
+            // 为每个仓位创建行，并异步获取Delta值
+            for (const position of unrecordedPositions) {
+                const row = document.createElement('tr');
                 const direction = position.size > 0 ? '多头' : '空头';
                 const directionClass = position.size > 0 ? 'action-buy' : 'action-sell';
 
+                // 先创建行，Delta列显示加载状态
                 row.innerHTML = `
                     <td>${position.instrument_name}</td>
                     <td>${Math.abs(position.size)}</td>
                     <td><span class="action-badge ${directionClass}">${direction}</span></td>
                     <td>${position.average_price ? position.average_price.toFixed(4) : '-'}</td>
                     <td>${position.mark_price ? position.mark_price.toFixed(4) : '-'}</td>
-                    <td class="${deltaClass}">${position.delta ? position.delta.toFixed(4) : '-'}</td>
-                    <td class="${deltaClass}">${position.delta ? position.delta.toFixed(4) : '-'}</td>
+                    <td class="delta-loading">🔄 计算中...</td>
                     <td>
                         <button class="btn-sm btn-add" data-action="add-position" data-instrument="${position.instrument_name}">
                             ➕ 添加到数据库
@@ -1062,12 +1135,37 @@
                     </td>
                 `;
                 tbody.appendChild(row);
-            });
 
-            if (unrecordedPositions.length === 0) {
-                const row = document.createElement('tr');
-                row.innerHTML = '<td colspan="8" style="text-align: center; color: #7f8c8d;">所有仓位都已记录在数据库中</td>';
-                tbody.appendChild(row);
+                // 异步获取Delta值并更新
+                fetchOptionDelta(position.instrument_name).then(calculatedDelta => {
+                    const deltaCell = row.querySelector('.delta-loading');
+
+                    if (calculatedDelta !== null) {
+                        const deltaClass = calculatedDelta >= 0 ? 'delta-positive' : 'delta-negative';
+                        const deltaText = calculatedDelta.toFixed(4);
+
+                        deltaCell.className = deltaClass;
+                        deltaCell.textContent = deltaText;
+                    } else {
+                        // 如果API计算失败，回退到原始delta值
+                        const fallbackDelta = position.delta;
+                        if (fallbackDelta !== null && fallbackDelta !== undefined) {
+                            const deltaClass = fallbackDelta >= 0 ? 'delta-positive' : 'delta-negative';
+                            const deltaText = fallbackDelta.toFixed(4);
+
+                            deltaCell.className = deltaClass;
+                            deltaCell.textContent = deltaText;
+                        } else {
+                            deltaCell.className = '';
+                            deltaCell.textContent = '-';
+                        }
+                    }
+                }).catch(error => {
+                    console.error(`更新 ${position.instrument_name} Delta失败:`, error);
+                    const deltaCell = row.querySelector('.delta-loading');
+                    deltaCell.className = '';
+                    deltaCell.textContent = '❌ 失败';
+                });
             }
         }
 

@@ -715,12 +715,12 @@ class OptionTradingService:
         # Round to nearest tick
         ticks = (price_decimal / tick_decimal).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         corrected_price = float(ticks * tick_decimal)
-
+        final_qty = round(order_quantity / delta_result.instrument.multiplier)
         # Apply minimum trade amount
         # min_trade_amount = delta_result.instrument.min_trade_amount or 1.0
         # corrected_quantity = max(order_quantity, min_trade_amount)
 
-        return round(order_quantity), corrected_price
+        return final_qty, corrected_price
 
     async def _place_direct_order(
         self,

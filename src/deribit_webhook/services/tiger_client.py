@@ -782,7 +782,7 @@ class TigerClient:
                             # self.logger.info(f"重新计算的隐含波动率: {implied_vol:.4f}")
                         else:
                             self.logger.warning(f"无法计算隐含波动率")
-                            implied_vol = None  # 使用20%作为默认波动率
+                            implied_vol = 0.2  # 使用20%作为默认波动率
                     except Exception as e:
                         self.logger.warning(f"计算隐含波动率失败: {e}")
                         implied_vol = None
