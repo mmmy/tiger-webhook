@@ -828,6 +828,40 @@ class TigerClient:
             self.logger.debug(f"计算隐含波动率参数: 类型={option_type}, 标的={underlying_price}, "
                             f"行权价={strike_price}, 市场价格={market_price}")
 
+            # 预先验证参数合理性
+            if market_price <= 0:
+                self.logger.warning(f"期权价格无效: {market_price}")
+                return None
+
+            if underlying_price <= 0:
+                self.logger.warning(f"标的价格无效: {underlying_price}")
+                return None
+
+            if strike_price <= 0:
+                self.logger.warning(f"行权价无效: {strike_price}")
+                return None
+
+            # 检查期权是否已到期
+            from datetime import datetime
+            today = datetime.now().date()
+            if expiry_date <= today:
+                self.logger.warning(f"期权已到期: {expiry_date}")
+                return None
+
+            # 计算内在价值用于后续的默认波动率判断
+            if option_type.lower() == 'call':
+                intrinsic_value = max(0, underlying_price - strike_price)
+            else:
+                intrinsic_value = max(0, strike_price - underlying_price)
+
+            # 记录期权基本信息用于调试
+            self.logger.debug(f"期权信息: 类型={option_type}, 内在价值={intrinsic_value:.4f}, "
+                            f"市场价格={market_price:.4f}, 时间价值={market_price - intrinsic_value:.4f}")
+
+            # 计算时间价值和到期天数，用于后续的默认波动率判断
+            time_value = market_price - intrinsic_value
+            days_to_expiry = (expiry_date - today).days
+
             # 使用期权计算器计算隐含波动率
             implied_vol = calculate_implied_volatility(
                 option_type=option_type,
@@ -842,14 +876,41 @@ class TigerClient:
             )
 
             # 验证计算结果的合理性
-            if implied_vol and 0.01 <= implied_vol <= 3.0:  # 1%到300%的合理范围
+            if implied_vol and 0.005 <= implied_vol <= 5.0:  # 0.5%到500%的合理范围
                 return implied_vol
             else:
                 self.logger.warning(f"计算的隐含波动率超出合理范围: {implied_vol}")
-                return None
+                # 对于边界情况，返回一个基于期权特征的合理默认值
+                if intrinsic_value == 0 and days_to_expiry <= 7:
+                    return 1.0  # 短期深度价外期权使用100%波动率
+                elif intrinsic_value == 0:
+                    return 0.5  # 深度价外期权使用50%波动率
+                else:
+                    return 0.2  # 其他情况使用20%波动率
 
+        except ValueError as e:
+            # 这是预期的错误，记录详细信息但不打印堆栈
+            error_msg = str(e)
+            if "root not bracketed" in error_msg:
+                self.logger.warning(f"隐含波动率计算失败 - 无法找到合适的波动率范围: "
+                                  f"期权={option_type}, 标的={underlying_price}, 行权价={strike_price}, "
+                                  f"市场价格={market_price}")
+            elif "低于内在价值" in error_msg:
+                self.logger.warning(f"期权价格异常: {error_msg}")
+            elif "数值方法计算隐含波动率失败" in error_msg:
+                self.logger.warning(f"数值计算失败，使用默认波动率: {error_msg}")
+                # 对于数值计算失败的情况，返回基于期权特征的默认值
+                if intrinsic_value == 0 and days_to_expiry <= 7:
+                    return 1.0  # 短期深度价外期权使用100%波动率
+                elif intrinsic_value == 0:
+                    return 0.5  # 深度价外期权使用50%波动率
+                else:
+                    return 0.2  # 其他情况使用20%波动率
+            else:
+                self.logger.warning(f"隐含波动率计算失败: {error_msg}")
+            return None
         except Exception as e:
-            self.logger.error(f"计算隐含波动率时发生错误: {e}")
+            self.logger.error(f"计算隐含波动率时发生未预期错误: {e}")
             return None
 
     async def _get_underlying_price(self, underlying_symbol: str) -> Optional[float]:

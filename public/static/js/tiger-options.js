@@ -110,8 +110,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const cells = [
             option.instrument_name || option.symbol || '-',
             option.strike != null ? Number(option.strike).toFixed(2) : '-',
-            formatExpiry(option.expiration_timestamp),
-            formatDaysToExpiry(option.expiration_timestamp),
             option.calculated_delta != null ? Number(option.calculated_delta).toFixed(3) :
                 (option.delta != null ? Number(option.delta).toFixed(3) : '-'),
             option.underlying_price != null ? Number(option.underlying_price).toFixed(2) : '-',
@@ -198,7 +196,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
         // Remove the '类型' column since we're separating by type
-        const headers = ['合约', '行权价', '到期时间', '剩余天数', 'Delta', '标的价', '货币'];
+        // Remove the '到期时间' and '剩余天数' columns since all options have the same expiration date
+        const headers = ['合约', '行权价', 'Delta', '标的价', '货币'];
 
         headers.forEach((title) => {
             const th = document.createElement('th');
