@@ -1004,6 +1004,103 @@ class TigerClient:
             self.logger.error(f"获取标的价格时发生错误: {e}")
             return None
 
+    async def calculate_delta_by_option_name(self, option_name: str) -> Optional[float]:
+        """根据期权名称计算delta值
+
+        Args:
+            option_name: Tiger期权名称，格式如 "QQQ 250926C00599000"
+
+        Returns:
+            计算得到的delta值，如果计算失败则返回None
+
+        Example:
+            delta = await client.calculate_delta_by_option_name("QQQ 250926C00599000")
+            if delta is not None:
+                print(f"Delta: {delta:.4f}")
+        """
+        try:
+            await self.ensure_quote_client()
+
+            self.logger.info("计算期权Delta", option_name=option_name)
+
+            # 1. 通过get_option_briefs获取期权信息
+            briefs = self.quote_client.get_option_briefs([option_name])
+
+            if briefs is None or len(briefs) == 0:
+                self.logger.warning("未获取到期权信息", option_name=option_name)
+                return None
+
+            option_brief = briefs.iloc[0]
+
+            # 2. 解析期权名称获取基本信息
+            try:
+                # 解析Tiger格式: "QQQ 250926C00599000"
+                parts = option_name.strip().split()
+                if len(parts) != 2:
+                    raise ValueError(f"Invalid option name format: {option_name}")
+
+                underlying_symbol = parts[0]
+                option_part = parts[1]
+
+                # 解析期权部分: 250926C00599000
+                if len(option_part) < 9:
+                    raise ValueError(f"Invalid option part: {option_part}")
+
+                expiry_str = option_part[:6]  # 250926
+                option_type_char = option_part[6]  # C or P
+                strike_str = option_part[7:]  # 00599000
+
+                # 转换期权类型
+                option_type = 'call' if option_type_char.upper() == 'C' else 'put'
+
+                # 转换行权价 (Tiger使用千分之一为单位)
+                strike_price = float(int(strike_str)) / 1000
+
+                # 转换到期日
+                from datetime import datetime
+                expiry_date = datetime.strptime(f"20{expiry_str}", "%Y%m%d")
+                expiry_timestamp = int(expiry_date.timestamp() * 1000)
+
+            except Exception as e:
+                self.logger.error("解析期权名称失败", option_name=option_name, error=str(e))
+                return None
+
+            # 3. 构造期权数据字典
+            option_data = {
+                'identifier': option_name,
+                'strike': strike_price,
+                'put_call': option_type_char.upper(),
+                'expiry': expiry_timestamp // 1000,  # 转换为秒
+                'bid_price': option_brief.get('bid_price'),
+                'ask_price': option_brief.get('ask_price'),
+                'latest_price': option_brief.get('latest_price'),
+                'implied_vol': 0 #option_brief.get('implied_vol')
+            }
+
+            # 4. 使用现有的希腊字母计算方法
+            greeks = await self._calculate_option_greeks_for_chain(
+                option_data, underlying_symbol, expiry_timestamp
+            )
+
+            if greeks and 'delta' in greeks:
+                delta = greeks['delta']
+                self.logger.info("Delta计算成功",
+                               option_name=option_name,
+                               delta=f"{delta:.4f}",
+                               underlying=underlying_symbol,
+                               strike=strike_price,
+                               option_type=option_type)
+                return delta
+            else:
+                self.logger.warning("Delta计算失败", option_name=option_name)
+                return None
+
+        except Exception as error:
+            self.logger.error("计算Delta时发生错误",
+                            option_name=option_name,
+                            error=str(error))
+            return None
+
     async def get_instruments_min_days(self, underlying_symbol: str, min_expired_days: int, take_expirations: int = 1) -> List[Dict]:
         """获取满足最小到期天数的有限期权链，减少接口调用以避免限流
 
@@ -1076,7 +1173,7 @@ class TigerClient:
                 # "contract_size": 100,
                 # "currency": "USD",
                 # 保持delta和underlying_price的原始值，如果存在的话
-                "delta": (float(tiger_option.get('delta', 0)) if tiger_option.get('delta') not in (None, "") else None),
+                "delta": (float(tiger_option.get('calculated_delta', 0)) if tiger_option.get('delta') not in (None, "") else None),
                 "underlying_price": (float(tiger_option.get('underlying_price', 0)) if tiger_option.get('underlying_price') not in (None, "") else None)
             })
 

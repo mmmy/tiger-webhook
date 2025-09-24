@@ -87,6 +87,18 @@ class TigerOptionsResponse(BaseModel):
     options: List[Dict[str, Any]]
 
 
+class TigerDeltaResponse(BaseModel):
+    """Tiger option delta calculation response"""
+    success: bool
+    message: str
+    option_name: str
+    mock_mode: bool
+    delta: Optional[float] = None
+    underlying: Optional[str] = None
+    option_type: Optional[str] = None
+    strike_price: Optional[float] = None
+    expiry_date: Optional[str] = None
+
 
 class OpenOrdersResponse(BaseModel):
     """Open orders response"""
@@ -482,4 +494,96 @@ async def test_connectivity():
         raise HTTPException(
             status_code=500,
             detail=str(error)
+        )
+
+
+@trading_router.get("/api/tiger/options/delta", response_model=TigerDeltaResponse)
+async def calculate_option_delta(
+    option_name: str = Query(..., description="Tiger option name, e.g. 'QQQ 250926C00599000'"),
+    account_name: Optional[str] = Query(None, alias="accountName", description="Account name defined in configuration")
+) -> TigerDeltaResponse:
+    """Calculate delta for a Tiger option by name"""
+    try:
+        # Validate option name format
+        if not option_name or not option_name.strip():
+            raise HTTPException(status_code=400, detail="Option name is required")
+
+        option_name = option_name.strip()
+
+        # Basic format validation for Tiger option names
+        parts = option_name.split()
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid option name format. Expected format: 'SYMBOL YYMMDDCSSSSSSSS' (e.g., 'QQQ 250926C00599000')"
+            )
+
+        underlying_symbol = parts[0]
+        option_part = parts[1]
+
+        if len(option_part) < 9:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid option part format. Expected format: 'YYMMDDCSSSSSSSS'"
+            )
+
+        # Parse option details for response
+        try:
+            expiry_str = option_part[:6]  # 250926
+            option_type_char = option_part[6]  # C or P
+            strike_str = option_part[7:]  # 00599000
+
+            option_type = 'call' if option_type_char.upper() == 'C' else 'put'
+            strike_price = float(int(strike_str)) / 1000
+
+            from datetime import datetime
+            expiry_date = datetime.strptime(f"20{expiry_str}", "%Y%m%d")
+            expiry_date_str = expiry_date.strftime("%Y-%m-%d")
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse option name: {str(e)}"
+            )
+
+        # Get Tiger client
+        client, is_mock = get_unified_client()
+
+        try:
+            # Calculate delta using the new method
+            delta = await client.calculate_delta_by_option_name(option_name)
+
+            if delta is not None:
+                return TigerDeltaResponse(
+                    success=True,
+                    message=f"Delta calculated successfully for {option_name}",
+                    option_name=option_name,
+                    mock_mode=is_mock,
+                    delta=delta,
+                    underlying=underlying_symbol,
+                    option_type=option_type,
+                    strike_price=strike_price,
+                    expiry_date=expiry_date_str
+                )
+            else:
+                return TigerDeltaResponse(
+                    success=False,
+                    message=f"Failed to calculate delta for {option_name}. Check if option exists and has market data.",
+                    option_name=option_name,
+                    mock_mode=is_mock,
+                    underlying=underlying_symbol,
+                    option_type=option_type,
+                    strike_price=strike_price,
+                    expiry_date=expiry_date_str
+                )
+
+        finally:
+            await client.close()
+
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(error)}"
         )
