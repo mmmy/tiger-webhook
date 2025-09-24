@@ -755,8 +755,8 @@ class TigerClient:
 
             # 使用默认的无风险利率和股息率
             # 在实际应用中，这些值应该从市场数据获取
-            risk_free_rate = 0.05  # 5% 默认无风险利率
-            dividend_rate = 0.0    # 0% 默认股息率
+            risk_free_rate = 0.03  # 3% 默认无风险利率
+            dividend_rate = 0.005    # 0.5% 默认股息率
 
             implied_vol = float(option_data['implied_vol'])
 

@@ -104,16 +104,101 @@ document.addEventListener('DOMContentLoaded', () => {
         return row;
     };
 
+    const buildRowWithoutType = (option) => {
+        const row = document.createElement('tr');
+
+        const cells = [
+            option.instrument_name || option.symbol || '-',
+            option.strike != null ? Number(option.strike).toFixed(2) : '-',
+            formatExpiry(option.expiration_timestamp),
+            formatDaysToExpiry(option.expiration_timestamp),
+            option.calculated_delta != null ? Number(option.calculated_delta).toFixed(3) :
+                (option.delta != null ? Number(option.delta).toFixed(3) : '-'),
+            option.underlying_price != null ? Number(option.underlying_price).toFixed(2) : '-',
+            option.currency || 'USD'
+        ];
+
+        cells.forEach((value) => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            row.appendChild(cell);
+        });
+
+        return row;
+    };
+
     const renderTable = (options) => {
         if (!options || options.length === 0) {
             renderPlaceholder('没有符合条件的期权。');
             return;
         }
 
+        // Separate call and put options
+        const callOptions = options.filter(option => {
+            const optionType = (option.option_type || '').toLowerCase();
+            return optionType === 'call';
+        });
+
+        const putOptions = options.filter(option => {
+            const optionType = (option.option_type || '').toLowerCase();
+            return optionType === 'put';
+        });
+
+        // Create the main container
+        const container = document.createElement('div');
+        container.className = 'options-split-container';
+
+        // Create call options section
+        const callSection = document.createElement('div');
+        callSection.className = 'options-section options-section--call';
+
+        const callHeader = document.createElement('h3');
+        callHeader.className = 'options-section__header';
+        callHeader.innerHTML = '<span class="tag tag--call">CALL</span> 看涨期权';
+        callSection.appendChild(callHeader);
+
+        if (callOptions.length > 0) {
+            const callTable = createOptionsTable(callOptions);
+            callSection.appendChild(callTable);
+        } else {
+            const callPlaceholder = document.createElement('p');
+            callPlaceholder.className = 'placeholder';
+            callPlaceholder.textContent = '没有符合条件的看涨期权';
+            callSection.appendChild(callPlaceholder);
+        }
+
+        // Create put options section
+        const putSection = document.createElement('div');
+        putSection.className = 'options-section options-section--put';
+
+        const putHeader = document.createElement('h3');
+        putHeader.className = 'options-section__header';
+        putHeader.innerHTML = '<span class="tag tag--put">PUT</span> 看跌期权';
+        putSection.appendChild(putHeader);
+
+        if (putOptions.length > 0) {
+            const putTable = createOptionsTable(putOptions);
+            putSection.appendChild(putTable);
+        } else {
+            const putPlaceholder = document.createElement('p');
+            putPlaceholder.className = 'placeholder';
+            putPlaceholder.textContent = '没有符合条件的看跌期权';
+            putSection.appendChild(putPlaceholder);
+        }
+
+        container.appendChild(callSection);
+        container.appendChild(putSection);
+
+        tableWrapper.innerHTML = '';
+        tableWrapper.appendChild(container);
+    };
+
+    const createOptionsTable = (options) => {
         const table = document.createElement('table');
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
-        const headers = ['合约', '类型', '行权价', '到期时间', '剩余天数', 'Delta', '标的价', '货币'];
+        // Remove the '类型' column since we're separating by type
+        const headers = ['合约', '行权价', '到期时间', '剩余天数', 'Delta', '标的价', '货币'];
 
         headers.forEach((title) => {
             const th = document.createElement('th');
@@ -124,13 +209,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const tbody = document.createElement('tbody');
         options.forEach((option) => {
-            tbody.appendChild(buildRow(option));
+            tbody.appendChild(buildRowWithoutType(option));
         });
 
         table.appendChild(thead);
         table.appendChild(tbody);
-        tableWrapper.innerHTML = '';
-        tableWrapper.appendChild(table);
+        return table;
     };
 
     const buildQuery = () => {
