@@ -416,7 +416,7 @@ class OptionWrapper:
             # 检查期权是否已到期
             expiry_date = self.option.exercise().lastDate()
             eval_date = ql.Settings.instance().evaluationDate
-            if expiry_date <= eval_date:
+            if expiry_date < eval_date:
                 # 到期期权，隐含波动率无意义
                 if abs(target_price - intrinsic_value) < 0.01:
                     return 0.0  # 返回0表示无时间价值

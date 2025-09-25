@@ -506,7 +506,7 @@ class TigerClient:
             for option in filtered_options:
                 # 这里
                 option_delta = option.get('delta')
-                if option_delta is not None and option_delta != "":
+                if option_delta is not None and option_delta != "" and abs(option_delta) > 0:
                     try:
                         delta_val = abs(float(option_delta))
                         delta_distance = abs(target_delta - delta_val)
@@ -845,7 +845,7 @@ class TigerClient:
             # 检查期权是否已到期
             from datetime import datetime
             today = datetime.now().date()
-            if expiry_date <= today:
+            if expiry_date < today:
                 self.logger.warning(f"期权已到期: {expiry_date}")
                 return None
 
