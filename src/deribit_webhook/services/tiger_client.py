@@ -801,6 +801,7 @@ class TigerClient:
                 settlement_date=settlement_date.strftime('%Y-%m-%d'),
                 expiration_date=expiry_date.strftime('%Y-%m-%d'),
                 dividend_rate=dividend_rate,
+                evaluation_date=settlement_date.strftime('%Y-%m-%d'),
                 option_style='american'  # 假设为美式期权
             )
 
@@ -873,6 +874,7 @@ class TigerClient:
                 option_price=market_price,  # 参数名是option_price，不是market_price
                 settlement_date=settlement_date.strftime('%Y-%m-%d'),
                 expiration_date=expiry_date.strftime('%Y-%m-%d'),
+                evaluation_date=settlement_date.strftime('%Y-%m-%d'),
                 option_style='american'  # 假设为美式期权
             )
             return implied_vol
