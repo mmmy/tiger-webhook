@@ -360,6 +360,28 @@ class DeltaManager:
 
             return cursor.rowcount
 
+    async def get_records_by_tv_id(self, account_id: str, tv_id: int) -> List[DeltaRecord]:
+        """Get all Delta records for a specific TradingView signal ID
+
+        Args:
+            account_id: Account ID to filter records
+            tv_id: TradingView signal ID
+
+        Returns:
+            List of Delta records matching the tv_id
+        """
+        await self.initialize()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM delta_records WHERE account_id = ? AND tv_id = ? ORDER BY created_at DESC",
+                (account_id, tv_id)
+            )
+            rows = await cursor.fetchall()
+            
+            return [self._row_to_delta_record(row) for row in rows]
+    
     def _row_to_delta_record(self, row: aiosqlite.Row) -> DeltaRecord:
         """Convert database row to DeltaRecord"""
         return DeltaRecord(
