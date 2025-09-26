@@ -32,7 +32,7 @@ from ..utils.symbol_converter import OptionSymbolConverter
 from ..utils.logging_config import get_global_logger
 
 
-
+# todo: 实现一个get_option_details函数,参数:symbol, 调用get_option_briefs
 class TigerClient:
     """Tiger Brokers客户端，替换DeribitClient"""
 
@@ -1861,3 +1861,7 @@ class TigerClient:
             "PARTIALLY_FILLED": "open"
         }
         return status_mapping.get(tiger_status, "open")
+    
+    async def get_option_details(self, option_name: str) :
+        result = self.quote_client.get_option_briefs([option_name])
+        return result
