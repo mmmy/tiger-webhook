@@ -1863,5 +1863,4 @@ class TigerClient:
         return status_mapping.get(tiger_status, "open")
     
     async def get_option_details(self, option_name: str) :
-        result = self.quote_client.get_option_briefs([option_name])
-        return result
+        return await self.get_ticker(option_name)
