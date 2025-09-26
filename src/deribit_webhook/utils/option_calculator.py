@@ -410,8 +410,8 @@ class OptionWrapper:
                 intrinsic_value = max(0, strike_price - spot_price)
 
             # 检查期权价格是否低于内在价值
-            if target_price < intrinsic_value * 0.99:  # 允许小幅误差
-                raise ValueError(f"期权价格 {target_price} 低于内在价值 {intrinsic_value}")
+            # if target_price < intrinsic_value * 0.99:  # 允许小幅误差
+            #     raise ValueError(f"期权价格 {target_price} 低于内在价值 {intrinsic_value}")
 
             # 检查期权是否已到期
             expiry_date = self.option.exercise().lastDate()

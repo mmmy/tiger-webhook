@@ -747,7 +747,7 @@ class TigerClient:
             if settlement_date >= expiry_date:
                 # 如果期权今天到期，将结算日期设为昨天
                 settlement_date = expiry_date - timedelta(days=1)
-                self.logger.warning(f"期权今天到期，调整结算日期: {settlement_date} -> 到期日期: {expiry_date}")
+                # self.logger.warning(f"期权今天到期，调整结算日期: {settlement_date} -> 到期日期: {expiry_date}")
 
                 # 再次检查调整后的日期是否合理
                 if settlement_date >= expiry_date:
@@ -763,7 +763,15 @@ class TigerClient:
 
             # 如果隐含波动率为0或接近0，尝试从期权价格重新计算
             if implied_vol <= 0.001:  # 小于0.1%认为是无效值
+                # If latest_price is not available, use average of bid and ask prices
                 market_price = option_data.get('latest_price')
+                bid_price = float(option_data.get('bid_price', 0) or 0)
+                ask_price = float(option_data.get('ask_price', 0) or 0)
+                if market_price is None or float(market_price) == 0 or math.isnan(market_price):
+                    if bid_price > 0 and ask_price > 0:
+                        market_price = (bid_price + ask_price) / 2
+                    else:
+                        market_price = None
                 if market_price and float(market_price) > 0:
                     try:
                         # self.logger.info(f"隐含波动率为0，尝试从市场价格重新计算: {market_price}")
@@ -787,7 +795,7 @@ class TigerClient:
                         self.logger.warning(f"计算隐含波动率失败: {e}")
                         implied_vol = None
                 else:
-                    self.logger.warning(f"无市场价格数据")
+                    self.logger.warning(f"无市场价格数据 market_price: {market_price} {bid_price} {ask_price}")
                     implied_vol = None
             if implied_vol is None:
                 return None
