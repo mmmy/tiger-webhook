@@ -113,12 +113,12 @@ async def execute_position_adjustment_by_tv_id(
             # Find corresponding Delta record
             delta_record = next(
                 (record for record in delta_records 
-                 if record.instrument_name == current_position.instrument_name),
+                 if record.instrument_name == current_position.get('instrument_name')),
                 None
             )
             
             if delta_record:
-                logger.info(f"🔄 Executing adjustment for instrument: {current_position.instrument_name}")
+                logger.info(f"🔄 Executing adjustment for instrument: {current_position.get('instrument_name')}")
                 
                 adjustment_result = await execute_position_adjustment(
                     request_id=f"tv_{tv_id}_{int(asyncio.get_event_loop().time())}",
@@ -136,10 +136,10 @@ async def execute_position_adjustment_by_tv_id(
                 
                 adjustment_results.append(adjustment_result)
             else:
-                logger.warning(f"⚠️ No delta record found for position: {current_position.instrument_name}")
+                logger.warning(f"⚠️ No delta record found for position: {current_position.get('instrument_name')}")
                 adjustment_results.append(PositionAdjustmentResult(
                     success=False,
-                    message=f"No delta record found for position: {current_position.instrument_name}"
+                    message=f"No delta record found for position: {current_position.get('instrument_name')}"
                 ))
         
         # 6. Summarize results
@@ -177,7 +177,7 @@ async def execute_position_adjustment_by_tv_id(
 async def execute_position_adjustment(
     request_id: str,
     account_name: str,
-    current_position: DeribitPosition,
+    current_position: Dict,  # Changed type hint to Dict
     delta_record: DeltaRecord,
     services: Dict[str, Any]
 ) -> PositionAdjustmentResult:
@@ -195,14 +195,14 @@ async def execute_position_adjustment(
         Position adjustment result
     """
     try:
-        logger.info(f"🔄 [{request_id}] Starting position adjustment for {current_position.instrument_name}")
+        logger.info(f"🔄 [{request_id}] Starting position adjustment for {current_position.get('instrument_name')}")
         
         config_loader = services['config_loader']
         delta_manager = services['delta_manager']
         deribit_client = services['deribit_client']
         
         # Extract currency and underlying asset information
-        currency, underlying = parse_instrument_for_options(current_position.instrument_name)
+        currency, underlying = parse_instrument_for_options(current_position.get('instrument_name'))
         
         # 1. Get new option instrument based on move_position_delta
         logger.info(f"📊 [{request_id}] Getting instrument by delta: currency={currency}, "
@@ -229,13 +229,13 @@ async def execute_position_adjustment(
             raise Exception("Failed to get instrument by delta: No suitable instrument found")
         
         # If selected instrument is the same as current position, no adjustment needed
-        if delta_result.instrument.instrument_name == current_position.instrument_name:
+        if delta_result.instrument.instrument_name == current_position.get('instrument_name'):
             logger.warning(f"⚠️ [{request_id}] Selected instrument is the same as current position: "
-                          f"{current_position.instrument_name}")
+                          f"{current_position.get('instrument_name')}")
             return PositionAdjustmentResult(
                 success=False,
                 reason="无需调整：目标合约与当前持仓合约相同",
-                error=f"当前持仓: {current_position.instrument_name} "
+                error=f"当前持仓: {current_position.get('instrument_name')} "
                       f"目标合约: {delta_result.instrument.instrument_name} 状态: 合约名称完全相同"
             )
         
@@ -275,11 +275,11 @@ async def execute_position_adjustment(
         logger.info(f"🎯 [{request_id}] Selected new instrument: {delta_result.instrument.instrument_name}")
         
         # 2. Close current position using progressive strategy
-        close_direction = "sell" if current_position.direction == "buy" else "buy"
-        close_quantity = abs(current_position.size)
+        close_direction = "sell" if current_position.get('direction') == "buy" else "buy"
+        close_quantity = abs(current_position.get('size', 0))
         
         logger.info(f"📉 [{request_id}] Closing current position: {close_direction} {close_quantity} "
-                   f"contracts of {current_position.instrument_name}")
+                   f"contracts of {current_position.get('instrument_name')}")
         
         close_result = await execute_position_close(
             request_id=f"{request_id}_close",
@@ -301,8 +301,8 @@ async def execute_position_adjustment(
         logger.info(f"✅ [{request_id}] Current position closed successfully using progressive strategy")
         
         # 3. Open new position
-        new_direction = current_position.direction
-        new_quantity = abs(current_position.size)
+        new_direction = current_position.get('direction')
+        new_quantity = abs(current_position.get('size', 0))
         instrument_name = delta_result.instrument.instrument_name
         
         logger.info(f"📈 [{request_id}] Opening new position: {new_direction} {new_quantity} "
@@ -350,11 +350,11 @@ async def execute_position_adjustment(
         # Return success result
         return PositionAdjustmentResult(
             success=True,
-            old_instrument=current_position.instrument_name,
+            old_instrument=current_position.get('instrument_name'),
             new_instrument=instrument_name,
             adjustment_summary=PositionAdjustmentSummary(
-                old_size=current_position.size,
-                old_delta=getattr(current_position, 'delta', 0),
+                old_size=current_position.get('size', 0),
+                old_delta=current_position.get('delta', 0),
                 new_direction=new_direction,
                 new_quantity=new_quantity,
                 target_delta=delta_record.move_position_delta
@@ -404,6 +404,7 @@ async def execute_position_close_by_tv_id(
         delta_manager = services.get('delta_manager') or get_delta_manager()
         auth_service = services.get('auth_service') or AuthenticationService.get_instance()
         deribit_client = services.get('deribit_client') or DeribitClient()
+        tiger_client = services.get('tiger_client') or TigerClient()
 
         # 1. Query Delta database records for tv_id
         delta_records = await delta_manager.get_records_by_tv_id(account_name, tv_id)
@@ -435,17 +436,16 @@ async def execute_position_close_by_tv_id(
             )
 
         # 4. Get current positions - all option positions
-        positions = await deribit_client.get_positions(
-            account_name=account_name,
-            kind='option'
-        )
+        positions = await tiger_client.get_positions(
+            account_name=account_name
+        ) or []
 
         # 5. Execute close for each Delta record
         close_results = []
         for delta_record in delta_records:
             current_position = next(
                 (pos for pos in positions
-                 if pos.instrument_name == delta_record.instrument_name and pos.size != 0),
+                 if pos.get('instrument_name') == delta_record.instrument_name and pos.get('size', 0) != 0),
                 None
             )
 
@@ -462,13 +462,13 @@ async def execute_position_close_by_tv_id(
                     services={
                         'config_loader': config_loader,
                         'delta_manager': delta_manager,
-                        'deribit_client': deribit_client
+                        'deribit_client': tiger_client
                     }
                 )
 
                 close_results.append(close_result)
             else:
-                logger.warning(f"⚠️ No active position found for instrument: {delta_record.instrument_name}")
+                # logger.warning(f"⚠️ No active position found for instrument: {delta_record.instrument_name}")
                 close_results.append({
                     'success': False,
                     'message': f"No active position found for instrument: {delta_record.instrument_name}"
@@ -513,7 +513,7 @@ async def execute_position_close_by_tv_id(
 async def execute_position_close(
     request_id: str,
     account_name: str,
-    current_position: DeribitPosition,
+    current_position: Dict,  # Changed type hint to Dict
     delta_record: Optional[DeltaRecord],
     close_ratio: float,
     is_market_order: bool,
@@ -535,7 +535,7 @@ async def execute_position_close(
         Close result dictionary
     """
     try:
-        logger.info(f"🔄 [{request_id}] Starting position close for {current_position.instrument_name} "
+        logger.info(f"🔄 [{request_id}] Starting position close for {current_position.get('instrument_name')} "
                    f"(ratio: {close_ratio})")
 
         config_loader = services['config_loader']
@@ -548,21 +548,21 @@ async def execute_position_close(
         spread_tick_threshold = settings.spread_tick_multiple_threshold
 
         # Check current position's spread
-        option_details = await deribit_client.get_option_details(current_position.instrument_name)
+        option_details = await deribit_client.get_option_details(current_position.get('instrument_name'))
         if not option_details:
             return {
                 'success': False,
-                'error': f"Failed to get option details for {current_position.instrument_name}"
+                'error': f"Failed to get option details for {current_position.get('instrument_name')}"
             }
 
         # Get instrument info for tick_size
-        instrument_info = await deribit_client.get_instrument(current_position.instrument_name)
+        instrument_info = await deribit_client.get_instrument(current_position.get('instrument_name'))
         if not instrument_info:
             return {
                 'success': False,
-                'error': f"Failed to get instrument details for {current_position.instrument_name}"
+                'error': f"Failed to get instrument details for {current_position.get('instrument_name')}"
             }
-
+        
         current_spread_ratio = calculate_spread_ratio(
             option_details.best_bid_price,
             option_details.best_ask_price
@@ -583,25 +583,25 @@ async def execute_position_close(
             threshold_formatted = format_spread_ratio_as_percentage(spread_ratio_threshold)
             tick_multiple = ((option_details.best_ask_price - option_details.best_bid_price) / tick_size)
 
-            logger.error(f"❌ [{request_id}] Position spread too wide for {current_position.instrument_name}: "
+            logger.error(f"❌ [{request_id}] Position spread too wide for {current_position.get('instrument_name')}: "
                         f"ratio={current_spread_formatted} > {threshold_formatted}, "
                         f"tick_multiple={tick_multiple:.1f} > {spread_tick_threshold}")
-
+            
             return {
                 'success': False,
                 'error': f"平仓价差过大：比率{current_spread_formatted} > {threshold_formatted} "
                         f"且 步进倍数{tick_multiple:.1f} > {spread_tick_threshold}"
             }
 
-        logger.info(f"✅ [{request_id}] Spread acceptable for {current_position.instrument_name}, proceeding with close")
+        logger.info(f"✅ [{request_id}] Spread acceptable for {current_position.get('instrument_name')}, proceeding with close")
 
         # Calculate close quantity
-        total_size = abs(current_position.size)
+        total_size = abs(current_position.get('size', 0))
         raw_close_quantity = total_size * close_ratio
-
+        
         # Correct close quantity using utility function
         close_quantity = correct_order_amount(raw_close_quantity, instrument_info)
-        close_direction = "sell" if current_position.direction == "buy" else "buy"
+        close_direction = "sell" if current_position.get('direction') == "buy" else "buy"
 
         logger.info(f"📉 [{request_id}] Closing position: {close_direction} {close_quantity} contracts "
                    f"({close_ratio * 100:.1f}% of {total_size})")
@@ -621,7 +621,7 @@ async def execute_position_close(
         # Execute close order
         if close_direction == "buy":
             close_result = await deribit_client.place_buy_order(
-                instrument_name=current_position.instrument_name,
+                instrument_name=current_position.get('instrument_name'),
                 amount=close_quantity,
                 account_name=account_name,
                 type="market" if is_market_order else "limit",
@@ -629,13 +629,13 @@ async def execute_position_close(
             )
         else:
             close_result = await deribit_client.place_sell_order(
-                instrument_name=current_position.instrument_name,
+                instrument_name=current_position.get('instrument_name'),
                 amount=close_quantity,
                 account_name=account_name,
                 type="market" if is_market_order else "limit",
                 price=price
             )
-
+        
         if not close_result:
             raise Exception("Failed to close position: No response received")
 
@@ -657,9 +657,9 @@ async def execute_position_close(
             'success': True,
             'close_result': close_result,
             'delta_record_deleted': delta_record_deleted,
-            'instrument': current_position.instrument_name,
+            'instrument': current_position.get('instrument_name'),
             'close_summary': {
-                'original_size': current_position.size,
+                'original_size': current_position.get('size', 0),
                 'close_quantity': close_quantity,
                 'close_ratio': close_ratio,
                 'remaining_size': total_size - close_quantity,
