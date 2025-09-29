@@ -75,8 +75,13 @@ async def execute_progressive_limit_strategy(
     params: ProgressiveLimitParams,
     tiger_client: TigerClient,
 ) -> ProgressiveLimitResult:
-    """Execute progressive limit strategy similar to the Node.js implementation."""
+    """执行分段限价委托的动态调整流程。
 
+    协程会周期性检查实时委托状态与盘口行情，在满足最小跳动价位的
+    前提下逐步把工作价格向当前最佳买/卖价逼近；若订单仍保持开启，则
+    会按最新最优价再做一次调整。返回结果包含执行摘要与轻量仓位上下文，
+    便于后续观测。
+    """
     last_price = params.initial_price
     attempt_count = 0
 
@@ -195,3 +200,5 @@ async def execute_progressive_limit_strategy(
         order_type="limit",
         position_info=position_info,
     )
+
+

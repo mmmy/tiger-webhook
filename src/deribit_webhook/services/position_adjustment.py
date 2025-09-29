@@ -28,6 +28,7 @@ from ..utils.spread_calculation import (
 )
 from ..utils.price_utils import correct_order_amount, correct_smart_price
 from ..utils.logging_config import get_global_logger
+from .progressive_limit_strategy import execute_progressive_limit_strategy, ProgressiveLimitParams
 
 logger = get_global_logger()
 
@@ -642,6 +643,7 @@ async def execute_position_close(
                    f"({close_ratio * 100:.1f}% of {total_size})")
 
         price = None
+        progressive_limit_result = None
         if not is_market_order:
             # Use smart pricing for limit orders
             smart_price_result = correct_smart_price(
@@ -673,7 +675,49 @@ async def execute_position_close(
         if not close_result:
             raise Exception("Failed to close position: No response received")
         else:
-            logger.info(f"✅ [{request_id}] Position closed successfully: {close_result.order.get('order_id')}")
+            if not is_market_order:
+                logger.info(f"✅ [{request_id}] Position close order placed successfully: {close_result.order.get('order_id')}")
+
+                # Execute progressive limit strategy for better fill
+                order_id = close_result.order.get('order_id')
+                if order_id:
+                    try:
+                        from ..config.settings import settings
+
+                        progressive_params = ProgressiveLimitParams(
+                            order_id=order_id,
+                            instrument_name=current_position.get('instrument_name'),
+                            direction=close_direction,
+                            quantity=close_quantity,
+                            initial_price=price,
+                            account_name=account_name,
+                            tick_size=0.01,
+                            max_steps=getattr(settings, 'progressive_limit_max_steps', 3),
+                            step_timeout=float(getattr(settings, 'progressive_limit_step_timeout', 8.0)),
+                        )
+
+                        progressive_result = await execute_progressive_limit_strategy(
+                            progressive_params,
+                            deribit_client,
+                        )
+
+                        logger.info(f"🎯 [{request_id}] Progressive limit strategy completed: "
+                                   f"success={progressive_result.success}, "
+                                   f"executed={progressive_result.executed_quantity}/{progressive_result.quantity}, "
+                                   f"attempts={progressive_result.attempt_count}")
+
+                        # Update close_result with progressive result information
+                        close_result.progressive_strategy = progressive_result
+
+                        if progressive_result.success and progressive_result.executed_quantity > 0:
+                            logger.info(f"✅ [{request_id}] Progressive limit strategy improved fill: "
+                                       f"{progressive_result.executed_quantity} contracts at avg price {progressive_result.average_price}")
+                        else:
+                            logger.warning(f"⚠️ [{request_id}] Progressive limit strategy did not improve fill: {progressive_result.message}")
+
+                    except Exception as strategy_error:
+                        logger.error(f"❌ [{request_id}] Progressive limit strategy failed: {strategy_error}")
+                        # Strategy failure doesn't affect the main close result
 
         # If full close (close_ratio = 1) and has Delta record, delete Delta record
         delta_record_deleted = False
