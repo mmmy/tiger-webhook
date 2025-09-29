@@ -359,7 +359,7 @@ async def execute_position_adjustment(
         option_service = OptionTradingService(
             config_loader=config_loader,
             delta_manager=delta_manager,
-            deribit_client=deribit_client
+            trading_client=deribit_client
         )
 
         new_order_result = await option_service._place_real_option_order(
