@@ -1113,10 +1113,19 @@ class OptionTradingService:
             'SUCCESS': 'Position adjustment completed',
             'FAILED': 'Position adjustment failed'
         }
+
+        # Add color indicator based on status
+        status_indicators = {
+            'START': '🔄',
+            'SUCCESS': '✅',
+            'FAILED': '❌'
+        }
+
         title = status_titles.get(status, 'Position adjustment update')
+        status_indicator = status_indicators.get(status, '📝')
 
         lines = [
-            f"**{title}**",
+            f"{status_indicator} **{title}**",
             '',
             f"- account: {account_name}",
             f"- tv id: {tv_id}"
@@ -1158,10 +1167,19 @@ class OptionTradingService:
             'SUCCESS': 'Profit close finished',
             'FAILED': 'Profit close failed'
         }
+
+        # Add color indicator based on status
+        status_indicators = {
+            'START': '🔄',
+            'SUCCESS': '✅',
+            'FAILED': '❌'
+        }
+
         title = status_titles.get(status, 'Profit close update')
+        status_indicator = status_indicators.get(status, '📝')
 
         lines = [
-            f"**{title}**",
+            f"{status_indicator} **{title}**",
             '',
             f"- account: {account_name}",
             f"- tv id: {tv_id}",
@@ -1208,10 +1226,19 @@ class OptionTradingService:
             'SUCCESS': 'Stop loss completed',
             'FAILED': 'Stop loss failed'
         }
+
+        # Add color indicator based on status
+        status_indicators = {
+            'START': '🔄',
+            'SUCCESS': '✅',
+            'FAILED': '❌'
+        }
+
         title = status_titles.get(status, 'Stop loss update')
+        status_indicator = status_indicators.get(status, '📝')
 
         lines = [
-            f"**{title}**",
+            f"{status_indicator} **{title}**",
             '',
             f"- account: {account_name}",
             f"- tv id: {tv_id}",
