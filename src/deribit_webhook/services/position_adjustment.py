@@ -59,9 +59,6 @@ class Services(TypedDict, total=False):
     # Trading client (TigerClient implements this protocol; legacy Deribit-style clients also compatible)
     deribit_client: TradingClientProtocol
 
-    # Optional, for mock/testing
-    mock_client: Any
-
     # Direct Tiger client access when needed
     tiger_client: TigerClient
 
@@ -90,8 +87,7 @@ async def execute_position_adjustment_by_tv_id(
         config_loader = services.get('config_loader') or ConfigLoader.get_instance()
         delta_manager = services.get('delta_manager') or get_delta_manager()
         auth_service = services.get('auth_service') or AuthenticationService.get_instance()
-        deribit_client = services.get('deribit_client') or DeribitClient()
-        mock_client = services.get('mock_client') or MockDeribitClient()
+        deribit_client = services.get('deribit_client') or get_trading_client()
 
         # 1. Query Delta database records for tv_id
         delta_records = await delta_manager.get_records_by_tv_id(account_name, tv_id)
@@ -125,14 +121,13 @@ async def execute_position_adjustment_by_tv_id(
         # 4. Get current positions - all option positions
         positions = await deribit_client.get_positions(
             account_name=account_name,
-            kind='option'
         )
 
         # Find positions that need adjustment
         positions_to_adjust = [
             pos for pos in positions
-            if any(record.instrument_name == pos.instrument_name for record in delta_records)
-            and pos.size != 0
+            if any(record.instrument_name == pos.get('instrument_name') for record in delta_records)
+            and pos.get('size', 0) != 0
         ]
 
         # 5. Execute adjustment for each position
@@ -165,8 +160,7 @@ async def execute_position_adjustment_by_tv_id(
                         'config_loader': config_loader,
                         'delta_manager': delta_manager,
                         'auth_service': auth_service,
-                        'deribit_client': deribit_client,
-                        'mock_client': mock_client
+                        'deribit_client': deribit_client
                     }
                 )
 
@@ -238,10 +232,10 @@ async def execute_position_adjustment(
         deribit_client = services['deribit_client']
 
         # Extract currency and underlying asset information
-        currency, underlying = parse_instrument_for_options(current_position.get('instrument_name'))
+        (underlying, _) = parse_instrument_for_options(current_position.get('instrument_name'))
 
         # 1. Get new option instrument based on move_position_delta
-        logger.info(f"📊 [{request_id}] Getting instrument by delta: currency={currency}, "
+        logger.info(f"📊 [{request_id}] Getting instrument by delta: "
                    f"underlying={underlying}, delta={delta_record.move_position_delta}")
 
         # Determine direction: positive move_position_delta selects call options, negative selects put options
@@ -254,9 +248,9 @@ async def execute_position_adjustment(
 
         # Get new option instrument
         delta_result = await deribit_client.get_instrument_by_delta(
-            currency=currency,
+            currency='',
             min_expired_days=delta_record.min_expire_days or 7,
-            delta=abs(delta_record.move_position_delta),
+            delta=delta_record.move_position_delta,
             long_side=is_call,
             underlying_asset=underlying
         )
@@ -276,7 +270,7 @@ async def execute_position_adjustment(
             )
 
         # Check if spread is reasonable
-        tick_size = getattr(delta_result.instrument, 'tick_size', 0.0001)
+        tick_size = 0.01#getattr(delta_result.instrument, 'tick_size', 0.0001)
         is_reasonable = is_spread_reasonable(
             delta_result.details.best_bid_price,
             delta_result.details.best_ask_price,
@@ -351,7 +345,7 @@ async def execute_position_adjustment(
             account_name=account_name,
             direction=new_direction,
             action="open_long" if new_direction == "buy" else "open_short",
-            symbol=currency,
+            symbol=underlying,
             quantity=new_quantity,
             order_type="limit",
             instrument_name=instrument_name,
@@ -374,6 +368,7 @@ async def execute_position_adjustment(
             account_name=account_name,
             delta_result=delta_result,
             params=trading_params,
+            # todo:这里要传入一值
             payload=None  # No original payload for adjustment
         )
 
@@ -756,27 +751,8 @@ async def execute_position_close(
 
 
 def parse_instrument_for_options(instrument_name: str) -> tuple[str, str]:
-    """
-    Parse option instrument name to extract currency and underlying parameters
-    Supports coin-margined options (BTC-XXX) and USDC options (SOL_USDC-XXX)
-
-    Args:
-        instrument_name: Option instrument name
-
-    Returns:
-        Tuple of (currency, underlying)
-    """
-    upper_instrument = instrument_name.upper()
-
-    # Check for USDC option format: SOL_USDC-DDMMMYY-STRIKE-C/P
-    if '_USDC-' in upper_instrument:
-        underlying = upper_instrument.split('_USDC-')[0]
-        return 'USDC', underlying
-    else:
-        # Coin-margined option format: BTC-DDMMMYY-STRIKE-C/P or ETH-DDMMMYY-STRIKE-C/P
-        parts = upper_instrument.split('-')
-        if len(parts) >= 4:
-            underlying = parts[0]
-            return underlying, underlying
-        else:
-            raise ValueError(f"Invalid instrument name format: {instrument_name}")
+    # todo: "AAPL 251031C00280000" -> "AAPL"
+    # Extract the symbol (first part before the space)
+    parts = instrument_name.split()
+    symbol = parts[0] if parts else instrument_name
+    return symbol, instrument_name

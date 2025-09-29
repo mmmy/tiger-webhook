@@ -316,8 +316,8 @@ class OptionTradingService:
             account_id=params.account_name,
             instrument_name=instrument_name,
             order_id=order_id if record_type == DeltaRecordType.ORDER else None,
-            target_delta=payload.delta1 or 0.0,  # Use delta1 as target_delta
-            move_position_delta=payload.delta2 or 0.0,  # Use delta2 as move_position_delta
+            move_position_delta=payload.delta1 or 0.0,
+            target_delta=payload.delta2 or 0.0,
             min_expire_days=payload.n,  # Use n as min_expire_days
             tv_id=payload.tv_id,
             action=params.action,
@@ -856,7 +856,7 @@ class OptionTradingService:
                             'delta_manager': self.delta_manager,
                             'auth_service': self.auth_service,
                             'deribit_client': self.deribit_client,
-                            'mock_client': self.mock_client
+                            # 'mock_client': self.mock_client
                         }
                     )
 
