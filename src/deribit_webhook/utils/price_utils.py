@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any, List
 from decimal import Decimal, ROUND_HALF_UP
 
 
-def correct_price(price: float, tick_size: float = 0.0005) -> float:
+def correct_price(price: float, tick_size: float = 0.01) -> float:
     """
     Correct price to valid tick size
     
@@ -289,32 +289,16 @@ def correct_order_amount(amount: float, min_amount: float = 1.0) -> float:
         return min_amount
 
     # Round to integer for option contracts
-    return float(int(amount))
+    return math.ceil(amount)
 
-
-def correct_smart_price(price: float, market_price: float, tick_size: float = 0.0005, max_deviation: float = 0.1) -> float:
-    """
-    Smart price correction with market price validation
-
-    Args:
-        price: Original price
-        market_price: Current market price
-        tick_size: Minimum price increment
-        max_deviation: Maximum allowed deviation from market price (10%)
-
-    Returns:
-        Corrected and validated price
-    """
-    if price <= 0 or market_price <= 0:
-        return correct_price(market_price, tick_size)
-
-    # Check if price is within reasonable range of market price
-    deviation = abs(price - market_price) / market_price
-
-    if deviation > max_deviation:
-        # If price deviates too much, use market price
-        corrected_price = market_price
+def calculate_smart_price(direction: str, bid_price: float, ask_price: float, ratio: float = 0.2):
+    spread = ask_price - bid_price
+    if direction == 'buy':
+        return bid_price + spread * ratio;
     else:
-        corrected_price = price
+        return ask_price - spread * ratio
 
-    return correct_price(corrected_price, tick_size)
+def correct_smart_price(direction: str, bid_price: float, ask_price: float, ratio: float = 0.2) -> float:
+    p = calculate_smart_price(direction, bid_price, ask_price, ratio)
+    price = correct_price(p, 0.01)
+    return price
