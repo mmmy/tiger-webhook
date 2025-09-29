@@ -703,7 +703,7 @@ async def execute_position_close(
 
                         logger.info(f"🎯 [{request_id}] Progressive limit strategy completed: "
                                    f"success={progressive_result.success}, "
-                                   f"executed={progressive_result.executed_quantity}/{progressive_result.quantity}, "
+                                   f"executed={progressive_result.executed_quantity}/{close_quantity}, "
                                    f"attempts={progressive_result.attempt_count}")
 
                         # Update close_result with progressive result information
