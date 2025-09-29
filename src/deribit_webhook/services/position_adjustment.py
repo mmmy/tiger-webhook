@@ -604,7 +604,7 @@ async def execute_position_close(
         )
 
         # Use comprehensive spread judgment logic
-        # tick_size = getattr(instrument_info, 'tick_size', 0.0001)
+        tick_size = 0.01
         is_reasonable = is_spread_reasonable(
             option_details.best_bid_price,
             option_details.best_ask_price,
@@ -672,8 +672,8 @@ async def execute_position_close(
 
         if not close_result:
             raise Exception("Failed to close position: No response received")
-
-        logger.info(f"✅ [{request_id}] Position closed successfully: {close_result.order.get('order_id')}")
+        else:
+            logger.info(f"✅ [{request_id}] Position closed successfully: {close_result.order.get('order_id')}")
 
         # If full close (close_ratio = 1) and has Delta record, delete Delta record
         delta_record_deleted = False
