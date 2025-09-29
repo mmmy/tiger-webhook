@@ -295,7 +295,7 @@ class OptionTradingService:
     async def _create_delta_record(
         self,
         params: OptionTradingParams,
-        payload: WebhookSignalPayload,
+        # payload: WebhookSignalPayload,
         order_id: str,
         instrument_name: str
     ):
@@ -316,10 +316,10 @@ class OptionTradingService:
             account_id=params.account_name,
             instrument_name=instrument_name,
             order_id=order_id if record_type == DeltaRecordType.ORDER else None,
-            move_position_delta=payload.delta1 or 0.0,
-            target_delta=payload.delta2 or 0.0,
-            min_expire_days=payload.n,  # Use n as min_expire_days
-            tv_id=payload.tv_id,
+            move_position_delta=params.delta1 or 0.0,
+            target_delta=params.delta2 or 0.0,
+            min_expire_days=params.n,  # Use n as min_expire_days
+            tv_id=params.tv_id,
             action=params.action,
             record_type=record_type
         )
@@ -469,8 +469,8 @@ class OptionTradingService:
                     quantity=params.quantity,
                     account_name=params.account_name,
                     delta_result=delta_result,
-                    params=params,
-                    payload=payload
+                    params=params
+                    # payload=payload
                 )
 
                 return order_result
@@ -518,8 +518,8 @@ class OptionTradingService:
         quantity: float,
         account_name: str,
         delta_result,
-        params: OptionTradingParams,
-        payload: WebhookSignalPayload
+        params: OptionTradingParams
+        # payload: WebhookSignalPayload
     ) -> OptionTradingResult:
         """Place a real option order on Tiger Brokers"""
         try:
@@ -609,7 +609,6 @@ class OptionTradingService:
                     try:
                         await self._create_delta_record(
                             params,
-                            payload,
                             order_result.get('order_id', ''),
                             instrument_name
                         )
@@ -624,7 +623,7 @@ class OptionTradingService:
                         instrument_name=instrument_name,
                         executed_quantity=order_result.get('filled_amount', final_quantity),
                         executed_price=order_result.get('average_price', final_price),
-                        order_label=f"tv_{payload.tv_id}" if payload.tv_id else None,
+                        order_label=f"tv_{params.tv_id}" if params.tv_id else None,
                         final_order_state=order_result.get('order_state', 'open')
                     )
 

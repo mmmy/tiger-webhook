@@ -325,7 +325,7 @@ async def execute_position_adjustment(
             }
         )
 
-        if not close_result.success:
+        if not close_result.get("success"):
             raise Exception(f"Failed to close position: {close_result.error or 'Unknown error'}")
 
         logger.info(f"✅ [{request_id}] Current position closed successfully using progressive strategy")
@@ -344,6 +344,7 @@ async def execute_position_adjustment(
         trading_params = OptionTradingParams(
             account_name=account_name,
             direction=new_direction,
+            # 此action后面其实没有作用
             action="open_long" if new_direction == "buy" else "open_short",
             symbol=underlying,
             quantity=new_quantity,
@@ -367,9 +368,7 @@ async def execute_position_adjustment(
             quantity=new_quantity,
             account_name=account_name,
             delta_result=delta_result,
-            params=trading_params,
-            # todo:这里要传入一值
-            payload=None  # No original payload for adjustment
+            params=trading_params
         )
 
         if not new_order_result or not new_order_result.success:
