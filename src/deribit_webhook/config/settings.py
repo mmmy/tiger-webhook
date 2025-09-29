@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     api_key: Optional[str] = Field(default=None, description="API key for authentication")
     
     # Polling Configuration
-    enable_position_polling: bool = Field(default=True, description="Enable automatic position polling")
+    enable_position_polling: bool = Field(default=True, alias="ENABLE_POSITION_POLLING", description="Enable automatic position polling")
     position_polling_interval: int = Field(default=30, description="Position polling interval in seconds")
     polling_interval_seconds: int = Field(default=30, alias="POLLING_INTERVAL_SECONDS", description="Position polling interval in seconds")
     # New minute-based polling intervals (following reference project pattern)

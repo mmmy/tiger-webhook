@@ -88,7 +88,7 @@ class PollingManager:
             print("?? Position polling is disabled in settings")
             return
 
-        print("?? Starting position polling...")
+        print("🟢 Starting position polling...")
         self.is_running = True
         self.position_error_count = 0
         self.last_position_poll_time = None
