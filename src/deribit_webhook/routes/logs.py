@@ -94,7 +94,7 @@ def parse_log_line(line: str) -> Optional[LogEntry]:
                 module=data.get('module'),
                 function=data.get('function'),
                 line=data.get('line'),
-                extra_data={k: v for k, v in data.items() 
+                extra_data={k: v for k, v in data.items()
                            if k not in ['timestamp', 'level', 'logger', 'message', 'module', 'function', 'line']}
             )
         else:
@@ -102,7 +102,7 @@ def parse_log_line(line: str) -> Optional[LogEntry]:
             # Pattern: 2025-09-17 20:12:28.123 [    INFO] [logger_name] message (module.py:123)
             pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+\[\s*(\w+)\s*\]\s+\[([^\]]+)\]\s+(.+?)(?:\s+\(([^:]+):(\d+)\))?$'
             match = re.match(pattern, line)
-            
+
             if match:
                 timestamp, level, logger, message, module, line_num = match.groups()
                 return LogEntry(
