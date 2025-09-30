@@ -29,7 +29,7 @@ class OptionTradingParams(BaseModel):
     price: Optional[float] = Field(default=None, description="Limit price (optional)")
     order_type: Literal["market", "limit"] = Field(..., description="Order type")
     instrument_name: Optional[str] = Field(default=None, description="Deribit option contract name")
-    qty_type: Optional[Literal["fixed", "cash"]] = Field(default="fixed", description="Quantity type")
+    qty_type: Optional[Literal["fixed", "cash"]] = Field(default="cash", description="Quantity type")
     delta1: Optional[float] = Field(default=None, description="Option Delta value for opening positions")
     delta2: Optional[float] = Field(default=None, description="Target Delta value for delta database")
     n: Optional[int] = Field(default=None, description="Minimum expiry days for option selection")
@@ -78,7 +78,6 @@ class OptionTradingResult(BaseModel):
 class PositionAdjustmentSummary(BaseModel):
     """Position adjustment summary"""
     old_size: float = Field(..., description="Old position size")
-    old_delta: float = Field(..., description="Old delta")
     new_direction: Literal["buy", "sell"] = Field(..., description="New direction")
     new_quantity: float = Field(..., description="New quantity")
     target_delta: float = Field(..., description="Target delta")

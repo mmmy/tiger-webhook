@@ -332,7 +332,7 @@ async def execute_position_adjustment(
 
         # 3. Open new position
         new_direction = current_position.get('direction')
-        new_quantity = abs(current_position.get('size', 0))
+        new_quantity = abs(current_position.get('size', 0)) * delta_result.instrument.multiplier
         instrument_name = delta_result.instrument.instrument_name
 
         logger.info(f"📈 [{request_id}] Opening new position: {new_direction} {new_quantity} "
@@ -349,6 +349,7 @@ async def execute_position_adjustment(
             symbol=underlying,
             quantity=new_quantity,
             order_type="limit",
+            qty_type="fixed",
             instrument_name=instrument_name,
             delta1=delta_record.move_position_delta,
             delta2=delta_record.target_delta,
@@ -378,18 +379,19 @@ async def execute_position_adjustment(
         logger.info(f"✅ [{request_id}] New position opened successfully: {new_order_result.order_id}")
 
         # Return success result
-        return PositionAdjustmentResult(
+        result = PositionAdjustmentResult(
             success=True,
             old_instrument=current_position.get('instrument_name'),
             new_instrument=instrument_name,
             adjustment_summary=PositionAdjustmentSummary(
                 old_size=current_position.get('size', 0),
-                old_delta=current_position.get('delta', 0),
                 new_direction=new_direction,
-                new_quantity=new_quantity,
-                target_delta=delta_record.move_position_delta
+                new_quantity=current_position.get('size', 0),
+                target_delta=delta_record.target_delta
             )
         )
+
+        return result
 
     except Exception as error:
         logger.error(f"💥 [{request_id}] Position adjustment failed: {error}")

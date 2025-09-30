@@ -105,9 +105,9 @@ class OptionTradingService:
                     trading_result=result,
                     additional_info={
                         "信号来源": "TradingView",
-                        "交易方向": trading_params.direction,
-                        "交易动作": trading_params.action.value if trading_params.action else "未知",
-                        "数量": trading_params.quantity,
+                        "交易方向(tv)": trading_params.direction,
+                        "交易动作": trading_params.action if trading_params.action else "未知",
+                        "数量(tv)": trading_params.quantity,
                         "TV ID": payload.tv_id or "无"
                     }
                 )
@@ -653,7 +653,7 @@ class OptionTradingService:
                 account_name=account_name,
                 instrument_name=instrument_name,
                 direction=direction,
-                requested_quantity=quantity,
+                requested_quantity=final_quantity,
                 requested_price=params.price or 0.0,
                 delta_result=delta_result,
                 strategy='direct',
