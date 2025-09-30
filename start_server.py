@@ -8,23 +8,28 @@ import os
 import sys
 from pathlib import Path
 
+
 def main():
     current_dir = Path(__file__).resolve().parent
     src_dir = current_dir / "src"
 
-    if str(src_dir) not in sys.path:
-        sys.path.insert(0, str(src_dir))
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{src_dir}{os.pathsep}{existing}" if existing else str(src_dir)
 
-    # 保持工作目录为项目根目录，以便相对路径 (如 ./logs) 正确解析
     os.chdir(current_dir)
 
-    from deribit_webhook.main import cli_main
-
-    print("🚀 Starting Deribit Webhook Service (main.py)...")
+    print("🚀 Starting Deribit Webhook Service (deribit_webhook.main)...")
     print(f"📁 Working directory: {Path.cwd()}")
-    print(f"🐍 Python path (prefix): {sys.path[:3]}")
+    print(f"🐍 PYTHONPATH: {env['PYTHONPATH']}")
 
-    cli_main()
+    os.execle(
+        sys.executable,
+        sys.executable,
+        "-m",
+        "deribit_webhook.main",
+        env
+    )
 
 
 if __name__ == "__main__":
