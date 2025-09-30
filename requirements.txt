@@ -20,8 +20,7 @@ sqlalchemy[asyncio]==2.0.23
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
-# Decimal precision for financial calculations
-decimal==1.70
+# Note: decimal is a built-in Python module, no installation needed
 
 # Date and time handling
 python-dateutil==2.8.2
