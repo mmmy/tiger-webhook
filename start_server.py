@@ -8,16 +8,15 @@ import os
 import sys
 from pathlib import Path
 
-# 添加src目录到Python路径
-current_dir = Path(__file__).parent
-src_dir = current_dir / "src"
-sys.path.insert(0, str(src_dir))
+def main():
+    # 添加src目录到Python路径
+    current_dir = Path(__file__).resolve().parent
+    src_dir = current_dir / "src"
+    sys.path.insert(0, str(src_dir))
 
-# 设置工作目录
-os.chdir(src_dir)
+    # 设置工作目录
+    os.chdir(src_dir)
 
-# 导入并启动应用
-if __name__ == "__main__":
     from deribit_webhook.app import create_app
     import uvicorn
 
@@ -33,3 +32,7 @@ if __name__ == "__main__":
         workers=1,
         log_level="info"
     )
+
+
+if __name__ == "__main__":
+    main()
