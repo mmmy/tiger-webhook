@@ -264,9 +264,8 @@ async def execute_position_adjustment(
                           f"{current_position.get('instrument_name')}")
             return PositionAdjustmentResult(
                 success=False,
-                reason="无需调整：目标合约与当前持仓合约相同",
-                error=f"当前持仓: {current_position.get('instrument_name')} "
-                      f"目标合约: {delta_result.instrument.instrument_name} 状态: 合约名称完全相同"
+                reason="目标合约与当前持仓相同，无需调整",
+                error=f"当前合约: {current_position.get('instrument_name')}\n目标合约: {delta_result.instrument.instrument_name}\n状态: 合约相同，无需移仓"
             )
 
         # Check if spread is reasonable

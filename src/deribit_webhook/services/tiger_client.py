@@ -706,6 +706,71 @@ class TigerClient:
                 return False
 
         return True
+    
+    async def _calc_option_greeks_by_instrument(self, instrument_name: str):
+        try:
+            await self.ensure_quote_client()
+
+            briefs = self.quote_client.get_option_briefs([instrument_name])
+            if briefs is None or len(briefs) == 0:
+                self.logger.warning("未获取到期权详情", instrument_name=instrument_name)
+                return None
+
+            option_brief = briefs.iloc[0].to_dict()
+
+            parts = instrument_name.strip().split()
+            if len(parts) != 2:
+                self.logger.warning("无法解析期权名称", instrument_name=instrument_name)
+                return None
+
+            underlying_symbol = parts[0]
+            option_part = parts[1]
+            if len(option_part) < 9:
+                self.logger.warning("期权标识格式不正确", option_name=instrument_name)
+                return None
+
+            expiry_str = option_part[:6]
+            option_type_char = option_part[6].upper()
+            strike_str = option_part[7:]
+
+            try:
+                strike_price = float(int(strike_str)) / 1000.0
+                expiry_date = datetime.strptime(f"20{expiry_str}", "%Y%m%d")
+            except ValueError as error:
+                self.logger.warning("解析期权基本信息失败", instrument_name=instrument_name, error=str(error))
+                return None
+
+            expiry_timestamp = int(expiry_date.timestamp() * 1000)
+
+            underlying_price = await self._get_underlying_price(underlying_symbol)
+            if underlying_price is None:
+                self.logger.warning("无法获取标的价格", underlying=underlying_symbol)
+                return None
+
+            option_data = {
+                'identifier': instrument_name,
+                'strike': strike_price,
+                'put_call': option_type_char,
+                'expiry': expiry_timestamp // 1000,
+                'bid_price': option_brief.get('bid_price'),
+                'ask_price': option_brief.get('ask_price'),
+                'latest_price': option_brief.get('latest_price'),
+                'implied_vol': float(option_brief.get('implied_vol') or 0.0)
+            }
+
+            greeks = await self._calculate_option_greeks_for_chain(
+                option_data,
+                underlying_symbol,
+                expiry_timestamp
+            )
+
+            if greeks:
+                greeks.setdefault('underlying_price', underlying_price)
+            return greeks
+
+        except Exception as error:
+            self.logger.error("计算期权希腊字母失败", instrument_name=instrument_name, error=str(error))
+            return None
 
     async def _calculate_option_greeks_for_chain(
         self, option_data: Dict, underlying_symbol: str, expiry_timestamp: int

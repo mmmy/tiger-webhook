@@ -383,21 +383,22 @@ class PollingManager:
 
             try:
                 # Get positions across supported base currencies (Tiger uses USD by default)
-                positions: List[Dict[str, Any]] = []
-                for base_currency in self.OPTION_BASE_CURRENCIES:
-                    try:
-                        currency_positions = await client.get_positions(account_name, base_currency)
-                    except Exception as currency_error:
-                        print(f"? {account_name}: Failed to load positions for {base_currency}: {currency_error}")
-                        continue
-                    if currency_positions:
-                        positions.extend(currency_positions)
+                positions: List[Dict[str, Any]] = await client.get_positions(account_name)
+                # for base_currency in self.OPTION_BASE_CURRENCIES:
+                #     try:
+                #         currency_positions = await client.get_positions(account_name, base_currency)
+                #     except Exception as currency_error:
+                #         print(f"? {account_name}: Failed to load positions for {base_currency}: {currency_error}")
+                #         continue
+                #     if currency_positions:
+                #         positions.extend(currency_positions)
 
-                summary = await client.get_account_summary(account_name, "USD")
+                # summary = await client.get_account_summary(account_name, "USD")
 
                 # Process positions
-                await self._process_positions(account_name, positions, summary)
-
+                await self._process_positions(account_name, positions)
+            except Exception as error:
+                print(f"_poll_account get_positions error: {error}")
             finally:
                 await client.close()
 
@@ -408,8 +409,7 @@ class PollingManager:
     async def _process_positions(
         self,
         account_name: str,
-        positions: List[Dict[str, Any]],
-        summary: Optional[Dict[str, Any]]
+        positions: List[Dict[str, Any]]
     ):
         """Process polled positions"""
         delta_manager = self._get_delta_manager()
@@ -417,8 +417,9 @@ class PollingManager:
         wechat_service = self._get_wechat_service()
         roi_threshold = 0.85
         option_positions: List[Dict[str, Any]] = []
-        total_delta = 0.0
+        # total_delta = 0.0
         action_client: Optional[Any] = None
+        trading_client = get_trading_client()
 
         try:
             # Aggregate option positions and total delta
@@ -426,19 +427,14 @@ class PollingManager:
                 if position.get("kind") != "option":
                     continue
 
-                delta_value = float(position.get("delta") or 0.0)
-                size_value = float(position.get("size") or 0.0)
-                total_delta += delta_value * size_value
+                # delta_value = float(position.get("delta") or 0.0)
+                # size_value = float(position.get("size") or 0.0)
+                # total_delta += delta_value * size_value
                 option_positions.append(position)
 
             if option_positions:
-                print(f"?? {account_name}: {len(option_positions)} option positions, total delta: {total_delta:.4f}")
+                print(f"?? {account_name}: {len(option_positions)} option positions")
             else:
-                if summary is not None:
-                    summary["option_position_count"] = 0
-                    summary["option_total_delta"] = 0.0
-                    summary["position_adjustments_triggered"] = 0
-                    summary["high_roi_positions_closed"] = 0
                 return
 
             adjustment_count = 0
@@ -457,22 +453,36 @@ class PollingManager:
 
                 try:
                     size = float(position.get("size") or 0.0)
-                    delta_value = float(position.get("delta") or 0.0)
-                    position_delta_per_unit = (delta_value / size) if size else 0.0
+                    # delta_value = float(position.get("delta") or 0.0)
+                    # position_delta_per_unit = (delta_value / size) if size else 0.0
 
-                    latest_record = await self._ensure_position_record(
-                        delta_manager=delta_manager,
-                        account_name=account_name,
+                    # latest_record = await self._ensure_position_record(
+                    #     delta_manager=delta_manager,
+                    #     account_name=account_name,
+                    #     instrument_name=instrument_name,
+                    #     observed_delta=position_delta_per_unit
+                    # )
+
+                    position_query = DeltaRecordQuery(
+                        account_id=account_name,
                         instrument_name=instrument_name,
-                        observed_delta=position_delta_per_unit
+                        record_type=DeltaRecordType.POSITION
                     )
+                    records = await delta_manager.query_records(position_query, limit=1)
+                    latest_record = records[0] if records else None
+                    if latest_record is None:
+                        continue;
+                    
+                    greeks = await trading_client._calc_option_greeks_by_instrument(instrument_name)
+                    if greeks is None or greeks.get('delta') is None:
+                        print(f"?? {account_name}: 无法获取希腊值 - {instrument_name}")
+                        continue
+
+                    position['delta'] = greeks.get('delta')
 
                     if latest_record is not None:
-                        threshold_abs = max(
-                            abs(latest_record.target_delta or 0.0),
-                            abs(latest_record.move_position_delta or 0.0)
-                        )
-                        position_delta_abs = abs(position_delta_per_unit)
+                        threshold_abs = abs(latest_record.target_delta or 0.0)
+                        position_delta_abs = abs(greeks.get('delta'))
 
                         if (
                             latest_record.min_expire_days is not None
@@ -480,7 +490,7 @@ class PollingManager:
                         ):
                             print(
                                 f"?? {account_name}: Delta threshold exceeded for {instrument_name} "
-                                f"(|{position_delta_per_unit:.4f}| > {threshold_abs:.4f})"
+                                f"(|{greeks.get('delta'):.4f}| > {threshold_abs:.4f})"
                             )
                             client = await ensure_action_client()
                             adjustment_success = await self._trigger_position_adjustment(
@@ -528,12 +538,7 @@ class PollingManager:
                 except Exception as position_error:
                     print(f"?? {account_name}: Failed to process position {instrument_name or 'unknown'}: {position_error}")
 
-            if summary is not None:
-                summary["option_position_count"] = len(option_positions)
-                summary["option_total_delta"] = total_delta
-                summary["position_adjustments_triggered"] = adjustment_count
-                summary["high_roi_positions_closed"] = high_roi_count
-
+  
             if adjustment_count or high_roi_count:
                 print(
                     f"?? {account_name}: adjustments triggered={adjustment_count}, "
@@ -627,19 +632,24 @@ class PollingManager:
             return False
 
         position_delta = float(position_data.get("delta") or 0.0)
-        size = float(position_data.get("size") or 0.0)
-        per_unit_delta = (position_delta / size) if size else 0.0
+        # size = float(position_data.get("size") or 0.0)
+        # per_unit_delta = (position_delta / size) if size else 0.0
+
+        # Calculate delta per unit for better readability
+        # size = float(position_data.get("size") or 0.0)
+        # per_unit_delta = (position_delta / size) if size else 0.0
 
         notification = (
-            "?? **Delta adjustment triggered**\n"
-            f"- Account: {account_name}\n"
-            f"- Instrument: {position_obj.instrument_name}\n"
-            f"- Position size: {position_obj.size}\n"
-            f"- Position delta: {position_delta:.4f}\n"
-            f"- Delta per unit: {per_unit_delta:.4f}\n"
-            f"- Target delta: {(delta_record.target_delta or 0.0):.4f}\n"
-            f"- Move delta: {(delta_record.move_position_delta or 0.0):.4f}\n"
-            f"- Record ID: {delta_record.id or 'N/A'}"
+            f"⚠️ **Delta调整触发**\n\n"
+            f"📊 **持仓信息**\n"
+            f"• 账户: {account_name}\n"
+            f"• 合约: {position_obj.instrument_name}\n"
+            f"• 持仓数量: {position_obj.size}\n"
+            f"• 当前Delta: {position_delta:.4f}\n"
+            f"🎯 **调整目标**\n"
+            f"• 目标Delta: {(delta_record.target_delta or 0.0):.4f}\n"
+            f"• 移仓Delta: {(delta_record.move_position_delta or 0.0):.4f}\n"
+            f"• 记录ID: {delta_record.id or 'N/A'}"
         )
         await wechat_service.send_custom_markdown(account_name, notification)
 
@@ -647,7 +657,7 @@ class PollingManager:
             result = await execute_position_adjustment(
                 request_id=request_id,
                 account_name=account_name,
-                current_position=position_obj,
+                current_position=position_data,
                 delta_record=delta_record,
                 services={
                     "config_loader": config_loader,
