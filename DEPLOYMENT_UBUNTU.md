@@ -232,11 +232,31 @@ DATABASE_URL=postgresql+asyncpg://deribit_user:your_password@localhost/deribit_d
 source /home/deribit/tiger-webhook/venv/bin/activate
 cd /home/deribit/tiger-webhook
 
-# 测试启动应用
-python -m uvicorn src.deribit_webhook.main:app --host 0.0.0.0 --port 3001
+# 方法一：使用启动脚本（最简单，推荐）
+python start_server.py
+
+# 方法二：进入src目录启动
+cd src
+PYTHONPATH=/home/deribit/tiger-webhook/src python -m uvicorn deribit_webhook.main:app --host 0.0.0.0 --port 3001
+
+# 方法三：直接运行main.py
+cd src
+python main.py
 
 # 在另一个终端测试API
 curl http://localhost:3001/health
+```
+
+**如果仍有问题，检查Python路径**：
+```bash
+# 检查模块导入
+cd /home/deribit/tiger-webhook/src
+python -c "from deribit_webhook.main import app; print('Import successful')"
+
+# 检查Python版本和路径
+python --version
+which python
+echo $PYTHONPATH
 ```
 
 ### 12. 进程管理配置
@@ -261,7 +281,8 @@ Type=simple
 User=deribit
 WorkingDirectory=/home/deribit/tiger-webhook
 Environment=PATH=/home/deribit/tiger-webhook/venv/bin
-ExecStart=/home/deribit/tiger-webhook/venv/bin/python -m uvicorn src.deribit_webhook.main:app --host 0.0.0.0 --port 3001 --workers 1
+Environment=PYTHONPATH=/home/deribit/tiger-webhook/src
+ExecStart=/home/deribit/tiger-webhook/venv/bin/python start_server.py
 Restart=always
 RestartSec=10
 
@@ -304,7 +325,7 @@ nano /etc/supervisor/conf.d/deribit-webhook.conf
 **Supervisor配置**:
 ```ini
 [program:deribit-webhook]
-command=/home/deribit/tiger-webhook/venv/bin/python -m uvicorn src.deribit_webhook.main:app --host 0.0.0.0 --port 3001 --workers 1
+command=/home/deribit/tiger-webhook/venv/bin/python start_server.py
 directory=/home/deribit/tiger-webhook
 user=deribit
 autostart=true
@@ -313,7 +334,7 @@ redirect_stderr=true
 stdout_logfile=/home/deribit/tiger-webhook/logs/supervisor.log
 stdout_logfile_maxbytes=10MB
 stdout_logfile_backups=5
-environment=PATH="/home/deribit/tiger-webhook/venv/bin"
+environment=PATH="/home/deribit/tiger-webhook/venv/bin",PYTHONPATH="/home/deribit/tiger-webhook/src"
 ```
 
 ```bash
