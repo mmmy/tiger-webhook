@@ -74,9 +74,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Mount static files
-    static_dir = PUBLIC_DIR / "static"
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    # Mount static files (support new tiger_static directory while keeping legacy fallback)
+    tiger_static_dir = PUBLIC_DIR / "tiger_static"
+    if tiger_static_dir.exists():
+        app.mount("/tiger_static", StaticFiles(directory=str(tiger_static_dir)), name="tiger_static")
+
+    legacy_static_dir = PUBLIC_DIR / "static"
+    if legacy_static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(legacy_static_dir)), name="static")
     
     # Include routers
     app.include_router(health_router, tags=["Health"])
