@@ -291,12 +291,10 @@ body {
 
 .log-entry-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     padding: 4px 8px;
     background: #f7fafc;
-    white-space: nowrap;
-    overflow: hidden;
 }
 
 .log-timestamp {
@@ -338,9 +336,10 @@ body {
     font-size: 0.75rem;
     line-height: 1.2;
     color: #2d3748;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
     flex: 1;
     min-width: 0;
 }

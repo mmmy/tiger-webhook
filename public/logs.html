@@ -29,16 +29,16 @@
                     <label for="time-range">时间范围</label>
                     <select id="time-range" class="form-control">
                         <option value="">全部时间</option>
-                        <option value="1h">最近1小时</option>
+                        <option value="1h" selected>最近1小时</option>
                         <option value="6h">最近6小时</option>
                         <option value="24h">最近24小时</option>
                         <option value="7d">最近7天</option>
-                        <option value="custom" selected>自定义</option>
+                        <option value="custom">自定义</option>
                     </select>
                 </div>
 
                 <!-- Custom Time Range -->
-                <div id="custom-time-range" class="filter-group">
+                <div id="custom-time-range" class="filter-group" style="display: none;">
                     <label>自定义时间</label>
                     <div class="time-inputs">
                         <input type="datetime-local" id="start-time" class="form-control">

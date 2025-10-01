@@ -91,28 +91,23 @@ class LogsManager {
     }
 
     setDefaultTimeRange() {
-        // Set end time to now
         const now = new Date();
-        const endTime = now.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:MM
-
-        // Set start time to 1 hour ago
         const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-        const startTime = oneHourAgo.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:MM
 
-        // Set the input values
-        this.startTimeInput.value = startTime;
-        this.endTimeInput.value = endTime;
+        this.startTimeInput.value = this.formatDateTimeLocal(oneHourAgo);
+        this.endTimeInput.value = this.formatDateTimeLocal(now);
+        this.timeRangeSelect.value = '1h';
+        this.customTimeRange.style.display = 'none';
     }
     
     handleTimeRangeChange() {
         const value = this.timeRangeSelect.value;
         if (value === 'custom') {
             this.customTimeRange.style.display = 'block';
-            // Set default values
             const now = new Date();
-            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
             this.endTimeInput.value = this.formatDateTimeLocal(now);
-            this.startTimeInput.value = this.formatDateTimeLocal(yesterday);
+            this.startTimeInput.value = this.formatDateTimeLocal(oneHourAgo);
         } else {
             this.customTimeRange.style.display = 'none';
         }
@@ -127,6 +122,13 @@ class LogsManager {
         return `${year}-${month}-${day}T${hours}:${minutes}`;
     }
     
+    updateUrlParams(params) {
+        const url = new URL(window.location.href);
+        url.search = params.toString();
+        const newUrl = `${url.pathname}${url.search}${url.hash}`;
+        window.history.replaceState({}, '', newUrl);
+    }
+
     buildQueryParams() {
         const params = new URLSearchParams();
         
@@ -164,6 +166,7 @@ class LogsManager {
         try {
             const params = this.buildQueryParams();
             this.currentQuery = Object.fromEntries(params);
+            this.updateUrlParams(params);
             
             const response = await fetch(`/api/logs/query?${params}`);
             const data = await response.json();

@@ -76,59 +76,65 @@ def parse_relative_time(time_str: str) -> datetime:
         raise ValueError(f"Unknown time unit: {unit}")
 
 
+def parse_text_log_line(line: str) -> LogEntry:
+    """Parse log lines that follow the text formatter syntax."""
+    pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+\[\s*(\w+)\s*\]\s+\[([^\]]+)\]\s+(.+?)(?:\s+\(([^:]+):(\d+)\))?$'
+    match = re.match(pattern, line)
+
+    if match:
+        timestamp, level, logger, message, module, line_num = match.groups()
+        return LogEntry(
+            timestamp=timestamp,
+            level=level,
+            logger=logger,
+            message=message,
+            module=module,
+            line=int(line_num) if line_num else None
+        )
+
+    return LogEntry(
+        timestamp=datetime.now().isoformat(),
+        level='INFO',
+        logger='unknown',
+        message=line
+    )
+
+
 def parse_log_line(line: str) -> Optional[LogEntry]:
     """Parse a single log line into LogEntry"""
     line = line.strip()
     if not line:
         return None
-    
+
     try:
         if settings.log_format.lower() == 'json':
-            # Parse JSON format log
-            data = json.loads(line)
-            return LogEntry(
-                timestamp=data.get('timestamp', ''),
-                level=data.get('level', ''),
-                logger=data.get('logger', ''),
-                message=data.get('message', ''),
-                module=data.get('module'),
-                function=data.get('function'),
-                line=data.get('line'),
-                extra_data={k: v for k, v in data.items()
-                           if k not in ['timestamp', 'level', 'logger', 'message', 'module', 'function', 'line']}
-            )
-        else:
-            # Parse text format log
-            # Pattern: 2025-09-17 20:12:28.123 [    INFO] [logger_name] message (module.py:123)
-            pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+\[\s*(\w+)\s*\]\s+\[([^\]]+)\]\s+(.+?)(?:\s+\(([^:]+):(\d+)\))?$'
-            match = re.match(pattern, line)
-
-            if match:
-                timestamp, level, logger, message, module, line_num = match.groups()
-                return LogEntry(
-                    timestamp=timestamp,
-                    level=level,
-                    logger=logger,
-                    message=message,
-                    module=module,
-                    line=int(line_num) if line_num else None
-                )
+            try:
+                data = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                return parse_text_log_line(line)
             else:
-                # Fallback: treat as plain message
                 return LogEntry(
-                    timestamp=datetime.now().isoformat(),
-                    level='INFO',
-                    logger='unknown',
-                    message=line
+                    timestamp=data.get('timestamp', ''),
+                    level=data.get('level', ''),
+                    logger=data.get('logger', ''),
+                    message=data.get('message', ''),
+                    module=data.get('module'),
+                    function=data.get('function'),
+                    line=data.get('line'),
+                    extra_data={k: v for k, v in data.items()
+                               if k not in ['timestamp', 'level', 'logger', 'message', 'module', 'function', 'line']}
                 )
+
+        return parse_text_log_line(line)
+
     except Exception as e:
-        # If parsing fails, return as plain message
         return LogEntry(
             timestamp=datetime.now().isoformat(),
             level='ERROR',
             logger='parser',
-            message=f"Failed to parse log line: {line[:100]}... Error: {str(e)}"
+            message=f"Failed to parse log line: {line} Error: {str(e)}"
         )
+
 
 
 def read_log_file(file_path: str, params: LogQueryParams) -> List[LogEntry]:
