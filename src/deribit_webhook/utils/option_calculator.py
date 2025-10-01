@@ -30,7 +30,7 @@ class OptionCalculator:
         if not QUANTLIB_AVAILABLE:
             raise ImportError(
                 "QuantLib is required for option calculations. "
-                "Please install it with: pip install quantlib"
+                "Please install it with: pip install QuantLib"
             )
     
     def calculate_greeks(
