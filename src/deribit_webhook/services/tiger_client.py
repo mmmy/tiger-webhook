@@ -102,12 +102,12 @@ class TigerClient:
 
     def _safe_float(self, value: Any) -> Optional[float]:
         """Convert value to float, ensuring it's JSON-compliant.
-        
+
         Returns None for inf, -inf, nan, or invalid values that cannot be serialized to JSON.
         """
         if value is None:
             return None
-        
+
         try:
             float_val = float(value)
             # Check if the float value is finite (not inf, -inf, or nan)
@@ -118,6 +118,51 @@ class TigerClient:
                 return None
         except (ValueError, TypeError):
             self.logger.warning(f"Failed to convert value to float: {value}, converting to None")
+            return None
+
+    def _sanitize_json_data(self, data: Any) -> Any:
+        """Ensure the provided data structure only contains JSON-serializable values."""
+        if data is None:
+            return None
+
+        # Handle numpy/pandas scalar types that expose the ``item`` method
+        if hasattr(data, "item") and callable(getattr(data, "item")):
+            try:
+                return self._sanitize_json_data(data.item())
+            except Exception:
+                return None
+
+        if isinstance(data, (str, bool)):
+            return data
+
+        if isinstance(data, bytes):
+            try:
+                return data.decode("utf-8")
+            except Exception:
+                return None
+
+        if isinstance(data, (datetime, date)):
+            return data.isoformat()
+
+        if isinstance(data, int):
+            return int(data)
+
+        if isinstance(data, float):
+            return self._safe_float(data)
+
+        if isinstance(data, dict):
+            sanitized_dict: Dict[str, Any] = {}
+            for key, value in data.items():
+                sanitized_dict[str(key)] = self._sanitize_json_data(value)
+            return sanitized_dict
+
+        if isinstance(data, (list, tuple, set)):
+            return [self._sanitize_json_data(item) for item in data]
+
+        # Fallback: attempt string conversion so the value is not lost entirely
+        try:
+            return str(data)
+        except Exception:
             return None
 
     async def close(self):
@@ -1272,7 +1317,7 @@ class TigerClient:
                 "underlying_price": self._safe_float(tiger_option.get('underlying_price') if tiger_option.get('underlying_price') not in (None, "") else None)
             })
 
-            return result
+            return self._sanitize_json_data(result)
 
         except Exception as error:
             print(f"❌ Failed to prepare Tiger option data: {error}")
