@@ -676,8 +676,8 @@
                                 <th>状态</th>
                                 <th>合约名称</th>
                                 <th>数量</th>
-                                <th>目标Delta</th>
-                                <th>移仓Delta</th>
+                                <th>目标Delta(2)</th>
+                                <th>移仓Delta(1)</th>
                                 <th>Delta</th>
                                 <th>最小到期天数</th>
                                 <th>TV_ID</th>
@@ -704,8 +704,8 @@
                                 <th>订单ID</th>
                                 <th>合约名称</th>
                                 <th>数量</th>
-                                <th>目标Delta</th>
-                                <th>移仓Delta</th>
+                                <th>目标Delta(2)</th>
+                                <th>移仓Delta(1)</th>
                                 <th>最小到期天数</th>
                                 <th>TV_ID</th>
                                 <th>动作</th>
@@ -1614,7 +1614,7 @@
 
                     // 验证必填字段
                     if (!targetDeltaInput.trim()) {
-                        showError('请输入目标Delta值');
+                        showError('请输入目标Delta(2)值');
                         return;
                     }
 
@@ -1627,7 +1627,7 @@
                     const movePositionDeltaValue = parseFloat(movePositionDeltaInput);
 
                     if (isNaN(targetDeltaValue) || targetDeltaValue < -1 || targetDeltaValue > 1) {
-                        showError('目标Delta值必须在-1到1之间');
+                        showError('目标Delta(2)值必须在-1到1之间');
                         return;
                     }
 
