@@ -647,8 +647,8 @@ class PollingManager:
             f"• 持仓数量: {position_obj.size}\n"
             f"• 当前Delta: {position_delta:.4f}\n"
             f"🎯 **调整目标**\n"
-            f"• 目标Delta: {(delta_record.target_delta or 0.0):.4f}\n"
-            f"• 移仓Delta: {(delta_record.move_position_delta or 0.0):.4f}\n"
+            f"• 目标Delta(2): {(delta_record.target_delta or 0.0):.4f}\n"
+            f"• 移仓Delta(1): {(delta_record.move_position_delta or 0.0):.4f}\n"
             f"• 记录ID: {delta_record.id or 'N/A'}"
         )
         await wechat_service.send_custom_markdown(account_name, notification)
