@@ -105,7 +105,6 @@ class TigerClient:
         
         Returns None for inf, -inf, nan, or invalid values that cannot be serialized to JSON.
         """
-        print("888888888888888888888888888888888888888888888888888888")
         if value is None:
             return None
         
