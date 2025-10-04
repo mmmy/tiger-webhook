@@ -100,6 +100,26 @@ class TigerClient:
             result[name] = value
         return result
 
+    def _safe_float(self, value: Any) -> Optional[float]:
+        """Convert value to float, ensuring it's JSON-compliant.
+        
+        Returns None for inf, -inf, nan, or invalid values that cannot be serialized to JSON.
+        """
+        if value is None:
+            return None
+        
+        try:
+            float_val = float(value)
+            # Check if the float value is finite (not inf, -inf, or nan)
+            if math.isfinite(float_val):
+                return float_val
+            else:
+                self.logger.warning(f"Invalid float value detected: {float_val}, converting to None")
+                return None
+        except (ValueError, TypeError):
+            self.logger.warning(f"Failed to convert value to float: {value}, converting to None")
+            return None
+
     async def close(self):
         """关闭所有客户端连接"""
         if self.push_client:
@@ -431,20 +451,20 @@ class TigerClient:
 
             option_data = briefs.iloc[0]
 
-            # 直接返回Tiger格式数据
+            # 直接返回Tiger格式数据，使用safe_float确保JSON兼容性
             ticker_data = {
                 "instrument_name": instrument_name,
                 "symbol": tiger_symbol,
-                "best_bid_price": float(option_data.get('bid_price', 0) or 0),
-                "best_ask_price": float(option_data.get('ask_price', 0) or 0),
-                "best_bid_amount": float(option_data.get('bid_size', 0) or 0),
-                "best_ask_amount": float(option_data.get('ask_size', 0) or 0),
-                "mark_price": float(option_data.get('latest_price', 0) or 0),
-                "last_price": float(option_data.get('latest_price', 0) or 0),
-                "mark_iv": float(option_data.get('implied_vol', 0) or 0),
-                "index_price": float(option_data.get('underlying_price', 0) or 0),
-                "volume": float(option_data.get('volume', 0) or 0),
-                "open_interest": float(option_data.get('open_interest', 0) or 0),
+                "best_bid_price": self._safe_float(option_data.get('bid_price', 0) or 0),
+                "best_ask_price": self._safe_float(option_data.get('ask_price', 0) or 0),
+                "best_bid_amount": self._safe_float(option_data.get('bid_size', 0) or 0),
+                "best_ask_amount": self._safe_float(option_data.get('ask_size', 0) or 0),
+                "mark_price": self._safe_float(option_data.get('latest_price', 0) or 0),
+                "last_price": self._safe_float(option_data.get('latest_price', 0) or 0),
+                "mark_iv": self._safe_float(option_data.get('implied_vol', 0) or 0),
+                "index_price": self._safe_float(option_data.get('underlying_price', 0) or 0),
+                "volume": self._safe_float(option_data.get('volume', 0) or 0),
+                "open_interest": self._safe_float(option_data.get('open_interest', 0) or 0),
                 "timestamp": int(datetime.now().timestamp() * 1000)
             }
 
@@ -1247,9 +1267,9 @@ class TigerClient:
                 # "min_trade_amount": 1,
                 # "contract_size": 100,
                 # "currency": "USD",
-                # 保持delta和underlying_price的原始值，如果存在的话
-                "delta": (float(tiger_option.get('calculated_delta', 0)) if tiger_option.get('delta') not in (None, "") else None),
-                "underlying_price": (float(tiger_option.get('underlying_price', 0)) if tiger_option.get('underlying_price') not in (None, "") else None)
+                # 保持delta和underlying_price的原始值，如果存在的话，但需要验证是否为有效的JSON兼容值
+                "delta": self._safe_float(tiger_option.get('calculated_delta') if tiger_option.get('delta') not in (None, "") else None),
+                "underlying_price": self._safe_float(tiger_option.get('underlying_price') if tiger_option.get('underlying_price') not in (None, "") else None)
             })
 
             return result
