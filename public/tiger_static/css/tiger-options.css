@@ -286,6 +286,46 @@ tbody tr:hover {
     font-weight: 600;
 }
 
+/* Delta value color gradient styles */
+.delta-gradient {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-align: center;
+    min-width: 45px;
+    transition: all 0.2s ease;
+}
+
+.delta-gradient:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Delta color gradient from -1 to +1 */
+.delta-100 { background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; }    /* Deep red */
+.delta-90  { background: linear-gradient(135deg, #e11d48, #be123c); color: white; }    /* Red */
+.delta-80  { background: linear-gradient(135deg, #e87954, #dc2626); color: white; }    /* Red-orange */
+.delta-70  { background: linear-gradient(135deg, #f97316, #ea580c); color: white; }    /* Orange */
+.delta-60  { background: linear-gradient(135deg, #fb923c, #f97316); color: white; }    /* Light orange */
+.delta-50  { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #1f2937; }  /* Yellow */
+.delta-40  { background: linear-gradient(135deg, #a3e635, #84cc16); color: #1f2937; }  /* Lime green */
+.delta-30  { background: linear-gradient(135deg, #4ade80, #22c55e); color: white; }     /* Light green */
+.delta-20  { background: linear-gradient(135deg, #22c55e, #16a34a); color: white; }    /* Green */
+.delta-10  { background: linear-gradient(135deg, #10b981, #059669); color: white; }    /* Teal green */
+.delta-0   { background: linear-gradient(135deg, #6b7280, #4b5563); color: white; }    /* Gray */
+.delta-10p { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }    /* Light blue */
+.delta-20p { background: linear-gradient(135deg, #06b6d4, #0891b2); color: white; }    /* Cyan */
+.delta-30p { background: linear-gradient(135deg, #14b8a6, #0d9488); color: white; }    /* Teal */
+.delta-40p { background: linear-gradient(135deg, #10b981, #059669); color: white; }    /* Green */
+.delta-50p { background: linear-gradient(135deg, #22c55e, #16a34a); color: white; }    /* Green */
+.delta-60p { background: linear-gradient(135deg, #84cc16, #65a30d); color: #1f2937; }  /* Lime */
+.delta-70p { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #1f2937; }  /* Yellow */
+.delta-80p { background: linear-gradient(135deg, #fb923c, #f97316); color: white; }    /* Orange */
+.delta-90p { background: linear-gradient(135deg, #f97316, #ea580c); color: white; }    /* Dark orange */
+.delta-100p{ background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; }    /* Deep red */
+
 .loading {
     display: inline-flex;
     align-items: center;

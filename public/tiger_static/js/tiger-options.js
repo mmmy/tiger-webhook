@@ -72,34 +72,91 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.round(diff / (24 * 3600 * 1000));
     };
 
+    const getDeltaColorClass = (delta) => {
+        if (delta == null || isNaN(delta)) {
+            return '';
+        }
+
+        const absDelta = Math.abs(delta);
+        const prefix = delta >= 0 ? 'delta-' : 'delta-';
+
+        // Map delta values to color buckets
+        if (absDelta >= 1.0) return prefix + '100';
+        if (absDelta >= 0.9) return prefix + '90';
+        if (absDelta >= 0.8) return prefix + '80';
+        if (absDelta >= 0.7) return prefix + '70';
+        if (absDelta >= 0.6) return prefix + '60';
+        if (absDelta >= 0.5) return prefix + '50';
+        if (absDelta >= 0.4) return prefix + '40';
+        if (absDelta >= 0.3) return prefix + '30';
+        if (absDelta >= 0.2) return prefix + '20';
+        if (absDelta >= 0.1) return prefix + '10';
+        if (absDelta >= 0.01) return prefix + '0';
+
+        return prefix + '0';
+    };
+
     const buildRow = (option) => {
         const row = document.createElement('tr');
 
-        const cells = [
-            option.instrument_name || option.symbol || '-',
-            option.option_type || '-',
-            option.strike != null ? Number(option.strike).toFixed(2) : '-',
-            formatExpiry(option.expiration_timestamp),
-            formatDaysToExpiry(option.expiration_timestamp),
-            option.calculated_delta != null ? Number(option.calculated_delta).toFixed(3) :
-                (option.delta != null ? Number(option.delta).toFixed(3) : '-'),
-            option.underlying_price != null ? Number(option.underlying_price).toFixed(2) : '-',
-            option.currency || 'USD'
-        ];
+        // First cell: instrument name
+        const nameCell = document.createElement('td');
+        nameCell.textContent = option.instrument_name || option.symbol || '-';
+        row.appendChild(nameCell);
 
-        cells.forEach((value, index) => {
-            const cell = document.createElement('td');
-            if (index === 1 && value !== '-') {
-                const tag = document.createElement('span');
-                const normalized = String(value).toLowerCase();
-                tag.textContent = normalized.toUpperCase();
-                tag.className = 'tag ' + (normalized === 'put' ? 'tag--put' : 'tag--call');
-                cell.appendChild(tag);
-            } else {
-                cell.textContent = value;
-            }
-            row.appendChild(cell);
-        });
+        // Second cell: option type
+        const typeCell = document.createElement('td');
+        const optionType = option.option_type || '-';
+        if (optionType !== '-') {
+            const tag = document.createElement('span');
+            const normalized = String(optionType).toLowerCase();
+            tag.textContent = normalized.toUpperCase();
+            tag.className = 'tag ' + (normalized === 'put' ? 'tag--put' : 'tag--call');
+            typeCell.appendChild(tag);
+        } else {
+            typeCell.textContent = '-';
+        }
+        row.appendChild(typeCell);
+
+        // Third cell: strike price
+        const strikeCell = document.createElement('td');
+        strikeCell.textContent = option.strike != null ? Number(option.strike).toFixed(2) : '-';
+        row.appendChild(strikeCell);
+
+        // Fourth cell: expiry date
+        const expiryCell = document.createElement('td');
+        expiryCell.textContent = formatExpiry(option.expiration_timestamp);
+        row.appendChild(expiryCell);
+
+        // Fifth cell: days to expiry
+        const daysCell = document.createElement('td');
+        daysCell.textContent = formatDaysToExpiry(option.expiration_timestamp);
+        row.appendChild(daysCell);
+
+        // Sixth cell: delta with color gradient
+        const deltaCell = document.createElement('td');
+        const deltaValue = option.calculated_delta != null ? option.calculated_delta :
+                          (option.delta != null ? option.delta : null);
+
+        if (deltaValue != null && !isNaN(deltaValue)) {
+            const deltaSpan = document.createElement('span');
+            deltaSpan.className = 'delta-gradient ' + getDeltaColorClass(deltaValue);
+            deltaSpan.textContent = Number(deltaValue).toFixed(3);
+            deltaCell.appendChild(deltaSpan);
+        } else {
+            deltaCell.textContent = '-';
+        }
+        row.appendChild(deltaCell);
+
+        // Seventh cell: underlying price
+        const priceCell = document.createElement('td');
+        priceCell.textContent = option.underlying_price != null ? Number(option.underlying_price).toFixed(2) : '-';
+        row.appendChild(priceCell);
+
+        // Eighth cell: currency
+        const currencyCell = document.createElement('td');
+        currencyCell.textContent = option.currency || 'USD';
+        row.appendChild(currencyCell);
 
         return row;
     };
@@ -107,20 +164,40 @@ document.addEventListener('DOMContentLoaded', () => {
     const buildRowWithoutType = (option) => {
         const row = document.createElement('tr');
 
-        const cells = [
-            option.instrument_name || option.symbol || '-',
-            option.strike != null ? Number(option.strike).toFixed(2) : '-',
-            option.calculated_delta != null ? Number(option.calculated_delta).toFixed(3) :
-                (option.delta != null ? Number(option.delta).toFixed(3) : '-'),
-            option.underlying_price != null ? Number(option.underlying_price).toFixed(2) : '-',
-            option.currency || 'USD'
-        ];
+        // First cell: instrument name
+        const nameCell = document.createElement('td');
+        nameCell.textContent = option.instrument_name || option.symbol || '-';
+        row.appendChild(nameCell);
 
-        cells.forEach((value) => {
-            const cell = document.createElement('td');
-            cell.textContent = value;
-            row.appendChild(cell);
-        });
+        // Second cell: strike price
+        const strikeCell = document.createElement('td');
+        strikeCell.textContent = option.strike != null ? Number(option.strike).toFixed(2) : '-';
+        row.appendChild(strikeCell);
+
+        // Third cell: delta with color gradient
+        const deltaCell = document.createElement('td');
+        const deltaValue = option.calculated_delta != null ? option.calculated_delta :
+                          (option.delta != null ? option.delta : null);
+
+        if (deltaValue != null && !isNaN(deltaValue)) {
+            const deltaSpan = document.createElement('span');
+            deltaSpan.className = 'delta-gradient ' + getDeltaColorClass(deltaValue);
+            deltaSpan.textContent = Number(deltaValue).toFixed(3);
+            deltaCell.appendChild(deltaSpan);
+        } else {
+            deltaCell.textContent = '-';
+        }
+        row.appendChild(deltaCell);
+
+        // Fourth cell: underlying price
+        const priceCell = document.createElement('td');
+        priceCell.textContent = option.underlying_price != null ? Number(option.underlying_price).toFixed(2) : '-';
+        row.appendChild(priceCell);
+
+        // Fifth cell: currency
+        const currencyCell = document.createElement('td');
+        currencyCell.textContent = option.currency || 'USD';
+        row.appendChild(currencyCell);
 
         return row;
     };
