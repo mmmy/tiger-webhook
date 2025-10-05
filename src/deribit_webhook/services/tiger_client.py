@@ -1931,6 +1931,7 @@ class TigerClient:
             realized = float(self._get(tiger_position, 'realized_pnl', 0) or 0)
             unrealized = float(self._get(tiger_position, 'unrealized_pnl', 0) or 0)
             total_pl = realized + unrealized
+            pnl_percent = float(self._get(tiger_position, 'unrealized_pnl_percent_by_cost_of_carry', 0) or 0)
 
             # Greeks（如果可以取得）
             greeks_obj = (
@@ -1975,6 +1976,7 @@ class TigerClient:
                 "interest_value": None,
                 "size_currency": market_value if market_value else None,
                 "average_price_usd": None,
+                "pnl_percent": pnl_percent,
             }
 
         except Exception as error:

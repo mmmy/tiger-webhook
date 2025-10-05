@@ -294,6 +294,33 @@
             font-weight: bold;
         }
 
+        .pnl-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 72px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            letter-spacing: 0.01em;
+        }
+
+        .pnl-positive {
+            color: #0f9d58;
+            background: rgba(15, 157, 88, 0.14);
+        }
+
+        .pnl-negative {
+            color: #d93025;
+            background: rgba(217, 48, 37, 0.18);
+        }
+
+        .pnl-neutral {
+            color: #4a5568;
+            background: rgba(74, 85, 104, 0.14);
+        }
+
         .delta-loading {
             color: #4299e1;
             font-style: italic;
@@ -679,6 +706,7 @@
                                 <th>目标Delta(2)</th>
                                 <th>移仓Delta(1)</th>
                                 <th>Delta</th>
+                                <th>盈亏率</th>
                                 <th>最小到期天数</th>
                                 <th>TV_ID</th>
                                 <th>动作</th>
@@ -944,7 +972,7 @@
 
             if (positionRecords.length === 0) {
                 const row = document.createElement('tr');
-                row.innerHTML = '<td colspan="11" style="text-align: center; color: #7f8c8d;">暂无仓位记录</td>';
+                row.innerHTML = '<td colspan="12" style="text-align: center; color: #7f8c8d;">暂无仓位记录</td>';
                 tbody.appendChild(row);
                 return;
             }
@@ -977,6 +1005,29 @@
                     '<td class="delta-loading">🔄 计算中...</td>' :
                     '<td style="color: #7f8c8d;">-</td>';
 
+                // 根据状态决定盈亏率显示：正常状态显示实际仓位盈亏率，否则显示"-"
+                let pnlPercentContent = '-';
+
+                if (hasLivePosition) {
+                    const pnlPercent = livePosition.pnl_percent;
+
+                    if (pnlPercent !== null && pnlPercent !== undefined) {
+                        const percentValue = pnlPercent * 100;
+                        const absValue = Math.abs(percentValue);
+                        const formattedValue = absValue >= 1 ? percentValue.toFixed(1) : percentValue.toFixed(2);
+                        const signPrefix = percentValue > 0 ? '+' : '';
+
+                        let pnlClass = 'pnl-neutral';
+                        if (percentValue > 0.05) {
+                            pnlClass = 'pnl-positive';
+                        } else if (percentValue < -0.05) {
+                            pnlClass = 'pnl-negative';
+                        }
+
+                        pnlPercentContent = `<span class="pnl-badge ${pnlClass}">${signPrefix}${formattedValue}%</span>`;
+                    }
+                }
+
                 row.innerHTML = `
                     <td>${combinedStatus}</td>
                     <td>${record.instrument_name}</td>
@@ -984,6 +1035,7 @@
                     <td class="${targetDeltaClass}">${record.target_delta.toFixed(4)}</td>
                     <td class="${movePositionDeltaClass}">${(record.move_position_delta || 0).toFixed(4)}</td>
                     ${deltaContent}
+                    <td>${pnlPercentContent}</td>
                     <td>${record.min_expire_days || '-'}</td>
                     <td>${record.tv_id || '-'}</td>
                     <td>${record.action || '-'}</td>
