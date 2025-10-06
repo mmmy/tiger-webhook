@@ -7,10 +7,14 @@ Creates and configures the FastAPI application with all routes and middleware.
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from .utils.logging_config import get_logger
 
 from .config import settings
 from .routes import (
@@ -94,6 +98,24 @@ def create_app() -> FastAPI:
     app.include_router(logs_router, tags=["Logs"])
     app.include_router(accounts_router, tags=["Accounts"])
     
+    validation_logger = get_logger("deribit_webhook.webhook.validation")
+
+    @app.exception_handler(RequestValidationError)
+    async def webhook_validation_exception_handler(request: Request, exc: RequestValidationError):
+        if request.url.path == "/webhook/signal":
+            log_context = {
+                "path": request.url.path,
+                "method": request.method,
+                "errors": exc.errors(),
+            }
+            if exc.body is not None:
+                log_context["body"] = exc.body
+            validation_logger.warning(
+                "Webhook payload validation failed",
+                **log_context,
+            )
+        return await request_validation_exception_handler(request, exc)
+
     @app.get("/")
     async def root():
         """Root endpoint - serve dashboard"""
@@ -136,3 +158,4 @@ def create_app() -> FastAPI:
 
 # Create default app instance for uvicorn
 app = create_app()
+

@@ -1921,7 +1921,7 @@ class TigerClient:
             if not tiger_symbol:
                 return None
 
-            deribit_symbol = self.symbol_converter.tiger_to_deribit(tiger_symbol)
+            # deribit_symbol = self.symbol_converter.tiger_to_deribit(tiger_symbol)
 
             # 基础数值
             qty = float(self._get(tiger_position, 'quantity', 0) or 0)
