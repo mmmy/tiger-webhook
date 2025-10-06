@@ -2,7 +2,7 @@
 Webhook-related type definitions
 """
 
-from typing import Optional, Literal, Any
+from typing import Optional, Literal, Any, Union
 from pydantic import BaseModel, Field
 
 
@@ -17,7 +17,7 @@ class WebhookSignalPayload(BaseModel):
     symbol: str = Field(..., description="Trading pair symbol")
     price: str = Field(..., description="Current price")
     timestamp: str = Field(None, description="Timestamp")
-    size: str = Field(..., description="Order quantity/contracts")
+    size: Union[str, float, int] = Field(..., description="Order quantity/contracts")
     position_size: str = Field(None, alias="positionSize", description="Current position size")
     id: str = Field(None, description="Strategy order ID")
     tv_id: int = Field(..., description="TradingView signal ID")

@@ -15,6 +15,7 @@ from ..config import ConfigLoader
 from ..models.webhook_types import WebhookSignalPayload
 from ..services import OptionTradingService
 from ..middleware.account_validation import validate_account_from_body
+from ..utils.logging_config import get_logger
 
 
 class WebhookResponse(BaseModel):
@@ -29,6 +30,9 @@ class WebhookResponse(BaseModel):
 
 
 webhook_router = APIRouter()
+
+# Get logger instance
+logger = get_logger(__name__)
 
 
 def generate_request_id() -> str:
@@ -48,22 +52,40 @@ async def webhook_signal(
     request_id = generate_request_id()
     
     try:
-        print(f"📡 [{request_id}] Received webhook signal:", payload.model_dump())
+        logger.info(
+            "Received webhook signal", 
+            request_id=request_id,
+            payload=payload.model_dump(),
+            account_name=payload.account_name
+        )
         
         # Account validation is handled by dependency
         # validated_account contains the validated account
         
         # Process trading signal
-        print(f"🔄 [{request_id}] Processing signal for account: {payload.account_name}")
+        logger.info(
+            "Processing trading signal", 
+            request_id=request_id,
+            account_name=payload.account_name
+        )
         
         # Create option trading service instance
+        logger.debug("Creating option trading service instance", request_id=request_id)
         option_trading_service = OptionTradingService()
         
         try:
             result = await option_trading_service.process_webhook_signal(payload)
             
             if not result.success:
-                print(f"❌ [{request_id}] Trading failed: {result.error or result.message}")
+                logger.error(
+                    "Trading operation failed",
+                    request_id=request_id,
+                    error=result.error or result.message,
+                    order_id=result.order_id,
+                    instrument_name=result.instrument_name,
+                    executed_quantity=result.executed_quantity,
+                    executed_price=result.executed_price
+                )
                 raise HTTPException(
                     status_code=500,
                     detail={
@@ -79,7 +101,15 @@ async def webhook_signal(
                     }
                 )
             
-            print(f"✅ [{request_id}] Trading successful:", result.model_dump())
+            logger.info(
+                "Trading operation successful",
+                request_id=request_id,
+                result=result.model_dump(),
+                order_id=result.order_id,
+                instrument_name=result.instrument_name,
+                executed_quantity=result.executed_quantity,
+                executed_price=result.executed_price
+            )
             
             return WebhookResponse(
                 success=True,
@@ -93,13 +123,20 @@ async def webhook_signal(
             
         finally:
             # Cleanup service resources
+            logger.debug("Cleaning up option trading service resources", request_id=request_id)
             await option_trading_service.close()
             
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as error:
-        print(f"💥 [{request_id}] Webhook processing error: {error}")
+        logger.error(
+            "Webhook processing error",
+            request_id=request_id,
+            error=str(error),
+            error_type=type(error).__name__,
+            account_name=payload.account_name
+        )
         
         raise HTTPException(
             status_code=500,
