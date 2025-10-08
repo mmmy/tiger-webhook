@@ -105,6 +105,7 @@ class OptionTradingService:
                     trading_result=result,
                     additional_info={
                         "信号来源": "TradingView",
+                        "标的(symbol)": trading_params.symbol,
                         "交易方向(tv)": trading_params.direction,
                         "交易动作": trading_params.action if trading_params.action else "未知",
                         "数量(tv)": trading_params.quantity,
