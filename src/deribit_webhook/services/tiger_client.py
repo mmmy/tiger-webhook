@@ -541,19 +541,35 @@ class TigerClient:
             if not hasattr(self, 'quote_client') or self.quote_client is None:
                 account = ConfigLoader.get_instance().get_enabled_accounts()[0]
                 await self._ensure_clients(account.name)
+                self.logger.info("get_instrument_by_delta",
+                           account=account.name,
+                           underlying_asset=underlying_asset,
+                           min_expired_days=min_expired_days,
+                           target_delta=delta)
+
+            self.logger.info("get_instrument_by_delta: 开始查找期权",
+                           underlying_asset=underlying_asset,
+                           min_expired_days=min_expired_days,
+                           target_delta=delta)
 
             options = await self.get_instruments_min_days(underlying_asset, min_expired_days)
             if not options:
-                print(f"⚠️ No options returned for {underlying_asset}")
+                self.logger.warning("get_instrument_by_delta: 没有找到期权", underlying_asset=underlying_asset)
                 return None
-            print(f"   候选期权数量: {len(options)}，示例类型: {[ (o.get('option_type'), o.get('expiration_timestamp')) for o in options[:3] ]}")
 
             opt_type = "call" if delta > 0 else "put"
             target_delta = abs(delta) * 1.1  # Use absolute value for comparison
+            self.logger.info("get_instrument_by_delta: 筛选期权",
+                            option_type=opt_type,
+                            target_delta=target_delta,
+                            buffer_ratio=0.1)
 
             # 1. 根据opt_type过滤options，并筛选出delta接近目标值的期权
             filtered_options = []
-            for option in options:
+            self.logger.info("get_instrument_by_delta: 开始筛选期权",
+                            option_count=len(options))
+
+            for i, option in enumerate(options):
                 if option.get('option_type', '').lower() != opt_type:
                     continue
 
@@ -567,15 +583,22 @@ class TigerClient:
                     # 筛选出delta值小于目标delta的期权（留有余地）
                     if delta_val <= target_delta:
                         filtered_options.append(option)
+
                 except (ValueError, TypeError):
-                    # 如果delta值转换失败，跳过该期权
+                    self.logger.warning("get_instrument_by_delta: 筛选失败",
+                                         option_name=option.get('instrument_name'),
+                                         reason="无效的delta值")
                     continue
 
             if not filtered_options:
-                print(f"⚠️ No {opt_type} options found")
+                self.logger.warning("get_instrument_by_delta: 没有找到符合条件的期权",
+                                        opt_type=opt_type)
                 return None
 
-            print(f"   过滤后的{opt_type}期权数量: {len(filtered_options)}")
+            self.logger.info("get_instrument_by_delta: 筛选完成",
+                            total=len(filtered_options),
+                            opt_type=opt_type,
+                            target_delta=target_delta)
 
             # 2. 然后根据|delta - option.delta|的绝对值排序, 选出3个小的
             # First, separate options with and without delta values
@@ -599,45 +622,60 @@ class TigerClient:
             options_with_delta.sort(key=lambda x: x[1])  # Sort by delta_distance
             top_candidates = options_with_delta[:3]
 
-            print(f"   有delta值的期权: {len(options_with_delta)}, 无delta值的期权: {len(options_without_delta)}")
+            self.logger.info("get_instrument_by_delta: 候选排序",
+                            with_delta=len(options_with_delta),
+                            without_delta=len(options_without_delta))
 
             if not top_candidates:
-                print("⚠️ No suitable candidates found")
+                self.logger.warning("get_instrument_by_delta: 未找到候选期权")
                 return None
 
-            print(f"   候选期权数量: {len(top_candidates)}")
+            self.logger.info("get_instrument_by_delta: 候选期权详情",
+                            candidate_count=len(top_candidates))
+
             for i, (option, delta_dist, delta_val) in enumerate(top_candidates):
-                print(f"     {i+1}. {option.get('instrument_name')} - delta: {delta_val}, distance: {delta_dist:.4f}")
+                self.logger.info("get_instrument_by_delta: 候选期权",
+                            index=i+1,
+                            instrument_name=option.get('instrument_name'),
+                            delta=delta_val,
+                            distance=delta_dist)
 
             # 3. 从3个中选一个: 盘口价差最小的
             best_option = None
             best_spread_ratio = float('inf')
 
+            self.logger.info("get_instrument_by_delta: 开始评估盘口价差")
             for option, delta_distance, delta_val in top_candidates:
                 instrument_name = option.get('instrument_name')
                 if not instrument_name:
                     continue
 
                 # Get ticker data for spread calculation
-
                 bid = option.get('bid_price', 0)
                 ask = option.get('ask_price', 0)
 
                 if bid <= 0 or ask <= 0:
-                    print(f"   ⚠️ {instrument_name} 报价无效: bid={bid}, ask={ask}")
+                    self.logger.warning("get_instrument_by_delta: 报价无效",
+                                         instrument_name=instrument_name,
+                                         bid=bid,
+                                         ask=ask)
                     continue
 
                 # Calculate spread ratio
                 spread_ratio = (ask - bid) / ((bid + ask) / 2) if (bid + ask) > 0 else float('inf')
 
-                print(f"   {instrument_name}: bid={bid}, ask={ask}, spread_ratio={spread_ratio:.4f}")
+                self.logger.debug("get_instrument_by_delta: 评估价差",
+                             instrument_name=instrument_name,
+                             bid=bid,
+                             ask=ask,
+                             spread_ratio=spread_ratio)
 
                 if spread_ratio < best_spread_ratio:
                     best_spread_ratio = spread_ratio
                     best_option = option
 
             if not best_option:
-                print("⚠️ 未找到合适的期权")
+                self.logger.warning("get_instrument_by_delta: 未找到合适的期权")
                 return None
 
             # Create result in expected format
@@ -655,11 +693,17 @@ class TigerClient:
             result.spread_ratio = best_spread_ratio
             result.delta_distance = min(delta_distance for _, delta_distance, _ in top_candidates if delta_distance != float('inf')) if any(d != float('inf') for _, d, _ in top_candidates) else None
 
-            print(f"✅ 选择期权: {result.instrument.instrument_name}, spread_ratio: {result.spread_ratio:.4f}")
+            self.logger.info("get_instrument_by_delta: 选择完成",
+                           instrument_name=result.instrument.instrument_name,
+                           delta=best_option.get('delta'),
+                           spread_ratio=result.spread_ratio,
+                           delta_distance=result.delta_distance)
+
             return result
 
         except Exception as e:
-            print(f"❌ get_instrument_by_delta failed: {e}")
+            self.logger.error("get_instrument_by_delta failed",
+                           error=str(e))
             return None
 
     async def get_instruments_by_target_days(self, underlying_symbol: str, target_expired_days: int, take_expirations: int = 1) -> List[Dict]:
