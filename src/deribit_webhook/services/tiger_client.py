@@ -549,13 +549,27 @@ class TigerClient:
             print(f"   候选期权数量: {len(options)}，示例类型: {[ (o.get('option_type'), o.get('expiration_timestamp')) for o in options[:3] ]}")
 
             opt_type = "call" if delta > 0 else "put"
-            target_delta = abs(delta)  # Use absolute value for comparison
+            target_delta = abs(delta) * 1.1  # Use absolute value for comparison
 
-            # 1. 根据opt_type过滤options
-            filtered_options = [
-                option for option in options
-                if option.get('option_type', '').lower() == opt_type
-            ]
+            # 1. 根据opt_type过滤options，并筛选出delta接近目标值的期权
+            filtered_options = []
+            for option in options:
+                if option.get('option_type', '').lower() != opt_type:
+                    continue
+
+                # 获取期权的delta值
+                option_delta = option.get('delta')
+                if option_delta is None or option_delta == "":
+                    continue
+
+                try:
+                    delta_val = abs(float(option_delta))
+                    # 筛选出delta值小于目标delta的期权（留有余地）
+                    if delta_val <= target_delta:
+                        filtered_options.append(option)
+                except (ValueError, TypeError):
+                    # 如果delta值转换失败，跳过该期权
+                    continue
 
             if not filtered_options:
                 print(f"⚠️ No {opt_type} options found")
