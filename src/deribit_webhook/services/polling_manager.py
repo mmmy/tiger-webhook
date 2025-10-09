@@ -476,6 +476,7 @@ class PollingManager:
                     greeks = await trading_client._calc_option_greeks_by_instrument(instrument_name)
                     if greeks is None or greeks.get('delta') is None:
                         print(f"?? {account_name}: 无法获取希腊值 - {instrument_name}")
+                        await asyncio.sleep(5)
                         continue
 
                     position['delta'] = greeks.get('delta')
@@ -538,7 +539,9 @@ class PollingManager:
                 except Exception as position_error:
                     print(f"?? {account_name}: Failed to process position {instrument_name or 'unknown'}: {position_error}")
 
-  
+                # 添加延迟，避免并发调用API过多
+                await asyncio.sleep(5)
+
             if adjustment_count or high_roi_count:
                 print(
                     f"?? {account_name}: adjustments triggered={adjustment_count}, "
