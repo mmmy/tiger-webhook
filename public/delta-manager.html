@@ -978,7 +978,7 @@
             }
 
             // 为每个仓位记录创建行，并异步获取Delta值
-            for (const record of positionRecords) {
+            for (const [index, record] of positionRecords.entries()) {
                 const row = document.createElement('tr');
 
                 const targetDeltaClass = record.target_delta >= 0 ? 'delta-positive' : 'delta-negative';
@@ -1052,25 +1052,29 @@
 
                 // 只有状态为"正常"时才异步获取Delta值
                 if (hasLivePosition) {
-                    fetchOptionDelta(record.instrument_name).then(calculatedDelta => {
-                        const deltaCell = row.querySelector('.delta-loading');
+                    // 添加延迟，避免并发调用接口过多
+                    const delay = index * 5000; // 每个请求间隔5秒
+                    setTimeout(() => {
+                        fetchOptionDelta(record.instrument_name).then(calculatedDelta => {
+                            const deltaCell = row.querySelector('.delta-loading');
 
-                        if (calculatedDelta !== null) {
-                            const deltaClass = calculatedDelta >= 0 ? 'delta-positive' : 'delta-negative';
-                            const deltaText = calculatedDelta.toFixed(4);
+                            if (calculatedDelta !== null) {
+                                const deltaClass = calculatedDelta >= 0 ? 'delta-positive' : 'delta-negative';
+                                const deltaText = calculatedDelta.toFixed(4);
 
-                            deltaCell.className = deltaClass;
-                            deltaCell.textContent = deltaText;
-                        } else {
+                                deltaCell.className = deltaClass;
+                                deltaCell.textContent = deltaText;
+                            } else {
+                                deltaCell.className = '';
+                                deltaCell.textContent = '-';
+                            }
+                        }).catch(error => {
+                            console.error(`更新 ${record.instrument_name} Delta失败:`, error);
+                            const deltaCell = row.querySelector('.delta-loading');
                             deltaCell.className = '';
-                            deltaCell.textContent = '-';
-                        }
-                    }).catch(error => {
-                        console.error(`更新 ${record.instrument_name} Delta失败:`, error);
-                        const deltaCell = row.querySelector('.delta-loading');
-                        deltaCell.className = '';
-                        deltaCell.textContent = '❌ 失败';
-                    });
+                            deltaCell.textContent = '❌ 失败';
+                        });
+                    }, delay);
                 }
             }
         }
@@ -1167,7 +1171,7 @@
             }
 
             // 为每个仓位创建行，并异步获取Delta值
-            for (const position of unrecordedPositions) {
+            for (const [index, position] of unrecordedPositions.entries()) {
                 const row = document.createElement('tr');
                 const direction = position.size > 0 ? '多头' : '空头';
                 const directionClass = position.size > 0 ? 'action-buy' : 'action-sell';
@@ -1189,35 +1193,39 @@
                 tbody.appendChild(row);
 
                 // 异步获取Delta值并更新
-                fetchOptionDelta(position.instrument_name).then(calculatedDelta => {
-                    const deltaCell = row.querySelector('.delta-loading');
+                // 添加延迟，避免并发调用接口过多
+                const delay = index * 5000; // 每个请求间隔5秒
+                setTimeout(() => {
+                    fetchOptionDelta(position.instrument_name).then(calculatedDelta => {
+                        const deltaCell = row.querySelector('.delta-loading');
 
-                    if (calculatedDelta !== null) {
-                        const deltaClass = calculatedDelta >= 0 ? 'delta-positive' : 'delta-negative';
-                        const deltaText = calculatedDelta.toFixed(4);
-
-                        deltaCell.className = deltaClass;
-                        deltaCell.textContent = deltaText;
-                    } else {
-                        // 如果API计算失败，回退到原始delta值
-                        const fallbackDelta = position.delta;
-                        if (fallbackDelta !== null && fallbackDelta !== undefined) {
-                            const deltaClass = fallbackDelta >= 0 ? 'delta-positive' : 'delta-negative';
-                            const deltaText = fallbackDelta.toFixed(4);
+                        if (calculatedDelta !== null) {
+                            const deltaClass = calculatedDelta >= 0 ? 'delta-positive' : 'delta-negative';
+                            const deltaText = calculatedDelta.toFixed(4);
 
                             deltaCell.className = deltaClass;
                             deltaCell.textContent = deltaText;
                         } else {
-                            deltaCell.className = '';
-                            deltaCell.textContent = '-';
+                            // 如果API计算失败，回退到原始delta值
+                            const fallbackDelta = position.delta;
+                            if (fallbackDelta !== null && fallbackDelta !== undefined) {
+                                const deltaClass = fallbackDelta >= 0 ? 'delta-positive' : 'delta-negative';
+                                const deltaText = fallbackDelta.toFixed(4);
+
+                                deltaCell.className = deltaClass;
+                                deltaCell.textContent = deltaText;
+                            } else {
+                                deltaCell.className = '';
+                                deltaCell.textContent = '-';
+                            }
                         }
-                    }
-                }).catch(error => {
-                    console.error(`更新 ${position.instrument_name} Delta失败:`, error);
-                    const deltaCell = row.querySelector('.delta-loading');
-                    deltaCell.className = '';
-                    deltaCell.textContent = '❌ 失败';
-                });
+                    }).catch(error => {
+                        console.error(`更新 ${position.instrument_name} Delta失败:`, error);
+                        const deltaCell = row.querySelector('.delta-loading');
+                        deltaCell.className = '';
+                        deltaCell.textContent = '❌ 失败';
+                    });
+                }, delay);
             }
         }
 
