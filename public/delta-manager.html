@@ -201,6 +201,24 @@
             color: white;
         }
 
+        .btn-refresh-delta {
+            background-color: #805ad5;
+            color: white;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            margin-left: 5px;
+        }
+
+        .btn-refresh-delta:hover {
+            background-color: #6b46c1;
+        }
+
+        .delta-cell-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
         /* Modal styles */
         .modal {
             display: none;
@@ -1002,7 +1020,14 @@
 
                 // 根据状态决定Delta列的内容
                 const deltaContent = hasLivePosition ?
-                    '<td class="delta-loading">🔄 计算中...</td>' :
+                    `<td class="delta-loading">
+                        <div class="delta-cell-wrapper">
+                            <span>🔄 计算中...</span>
+                            <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${record.instrument_name}', this)" title="刷新Delta">
+                                🔄
+                            </button>
+                        </div>
+                    </td>` :
                     '<td style="color: #7f8c8d;">-</td>';
 
                 // 根据状态决定盈亏率显示：正常状态显示实际仓位盈亏率，否则显示"-"
@@ -1063,16 +1088,37 @@
                                 const deltaText = calculatedDelta.toFixed(4);
 
                                 deltaCell.className = deltaClass;
-                                deltaCell.textContent = deltaText;
+                                deltaCell.innerHTML = `
+                                    <div class="delta-cell-wrapper">
+                                        <span>${deltaText}</span>
+                                        <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${record.instrument_name}', this)" title="刷新Delta">
+                                            🔄
+                                        </button>
+                                    </div>
+                                `;
                             } else {
                                 deltaCell.className = '';
-                                deltaCell.textContent = '-';
+                                deltaCell.innerHTML = `
+                                    <div class="delta-cell-wrapper">
+                                        <span>-</span>
+                                        <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${record.instrument_name}', this)" title="刷新Delta">
+                                            🔄
+                                        </button>
+                                    </div>
+                                `;
                             }
                         }).catch(error => {
                             console.error(`更新 ${record.instrument_name} Delta失败:`, error);
                             const deltaCell = row.querySelector('.delta-loading');
                             deltaCell.className = '';
-                            deltaCell.textContent = '❌ 失败';
+                            deltaCell.innerHTML = `
+                                <div class="delta-cell-wrapper">
+                                    <span>❌ 失败</span>
+                                    <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${record.instrument_name}', this)" title="刷新Delta">
+                                        🔄
+                                    </button>
+                                </div>
+                            `;
                         });
                     }, delay);
                 }
@@ -1150,6 +1196,55 @@
             }
         }
 
+        // 刷新单个期权的Delta值
+        async function refreshSingleDelta(instrumentName, buttonElement) {
+            // 获取按钮所在的td元素
+            const td = buttonElement.closest('td');
+            const wrapper = td.querySelector('.delta-cell-wrapper');
+
+            // 显示加载状态
+            wrapper.innerHTML = `
+                <span>🔄 刷新中...</span>
+                <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${instrumentName}', this)" title="刷新Delta" disabled>
+                    🔄
+                </button>
+            `;
+
+            try {
+                const calculatedDelta = await fetchOptionDelta(instrumentName);
+
+                if (calculatedDelta !== null) {
+                    const deltaClass = calculatedDelta >= 0 ? 'delta-positive' : 'delta-negative';
+                    const deltaText = calculatedDelta.toFixed(4);
+
+                    td.className = deltaClass;
+                    wrapper.innerHTML = `
+                        <span>${deltaText}</span>
+                        <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${instrumentName}', this)" title="刷新Delta">
+                            🔄
+                        </button>
+                    `;
+                } else {
+                    td.className = '';
+                    wrapper.innerHTML = `
+                        <span>-</span>
+                        <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${instrumentName}', this)" title="刷新Delta">
+                            🔄
+                        </button>
+                    `;
+                }
+            } catch (error) {
+                console.error(`刷新 ${instrumentName} Delta失败:`, error);
+                td.className = '';
+                wrapper.innerHTML = `
+                    <span>❌ 失败</span>
+                    <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${instrumentName}', this)" title="刷新Delta">
+                        🔄
+                    </button>
+                `;
+            }
+        }
+
         // 更新实际仓位表格
         async function updatePositionsTable() {
             const tbody = document.querySelector('#positionsTable tbody');
@@ -1183,7 +1278,14 @@
                     <td><span class="action-badge ${directionClass}">${direction}</span></td>
                     <td>${position.average_price ? position.average_price.toFixed(4) : '-'}</td>
                     <td>${position.mark_price ? position.mark_price.toFixed(4) : '-'}</td>
-                    <td class="delta-loading">🔄 计算中...</td>
+                    <td class="delta-loading">
+                        <div class="delta-cell-wrapper">
+                            <span>🔄 计算中...</span>
+                            <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${position.instrument_name}', this)" title="刷新Delta">
+                                🔄
+                            </button>
+                        </div>
+                    </td>
                     <td>
                         <button class="btn-sm btn-add" data-action="add-position" data-instrument="${position.instrument_name}">
                             ➕ 添加到数据库
@@ -1204,7 +1306,14 @@
                             const deltaText = calculatedDelta.toFixed(4);
 
                             deltaCell.className = deltaClass;
-                            deltaCell.textContent = deltaText;
+                            deltaCell.innerHTML = `
+                                <div class="delta-cell-wrapper">
+                                    <span>${deltaText}</span>
+                                    <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${position.instrument_name}', this)" title="刷新Delta">
+                                        🔄
+                                    </button>
+                                </div>
+                            `;
                         } else {
                             // 如果API计算失败，回退到原始delta值
                             const fallbackDelta = position.delta;
@@ -1213,17 +1322,38 @@
                                 const deltaText = fallbackDelta.toFixed(4);
 
                                 deltaCell.className = deltaClass;
-                                deltaCell.textContent = deltaText;
+                                deltaCell.innerHTML = `
+                                    <div class="delta-cell-wrapper">
+                                        <span>${deltaText}</span>
+                                        <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${position.instrument_name}', this)" title="刷新Delta">
+                                            🔄
+                                        </button>
+                                    </div>
+                                `;
                             } else {
                                 deltaCell.className = '';
-                                deltaCell.textContent = '-';
+                                deltaCell.innerHTML = `
+                                    <div class="delta-cell-wrapper">
+                                        <span>-</span>
+                                        <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${position.instrument_name}', this)" title="刷新Delta">
+                                            🔄
+                                        </button>
+                                    </div>
+                                `;
                             }
                         }
                     }).catch(error => {
                         console.error(`更新 ${position.instrument_name} Delta失败:`, error);
                         const deltaCell = row.querySelector('.delta-loading');
                         deltaCell.className = '';
-                        deltaCell.textContent = '❌ 失败';
+                        deltaCell.innerHTML = `
+                            <div class="delta-cell-wrapper">
+                                <span>❌ 失败</span>
+                                <button class="btn-sm btn-refresh-delta" onclick="refreshSingleDelta('${position.instrument_name}', this)" title="刷新Delta">
+                                    🔄
+                                </button>
+                            </div>
+                        `;
                     });
                 }, delay);
             }
