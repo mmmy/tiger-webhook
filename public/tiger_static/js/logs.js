@@ -226,7 +226,7 @@ class LogsManager {
     createLogEntryHtml(entry) {
         const timestamp = this.formatTimestamp(entry.timestamp);
         const level = entry.level.toLowerCase();
-        const message = this.escapeHtml(entry.message);
+        const message = this.escapeHtml(this.cleanMessage(entry.message));
         const module = entry.module ? this.escapeHtml(entry.module) : '';
 
         return `
@@ -261,6 +261,28 @@ class LogsManager {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    cleanMessage(message) {
+        // Remove timestamp, level, and logger name from the message if present
+        // Pattern matches log entries like:
+        // "2025-09-30 22:17:47.053 [    INFO] deribit_webhook: actual message"
+        // "2025-09-30 22:17:47.053 INFO deribit_webhook actual message"
+        // "2025-09-30 22:17:47.053 [INFO] deribit_webhook: actual message"
+
+        // Remove date/time at the beginning (YYYY-MM-DD HH:MM:SS.mmm)
+        message = message.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s*/, '');
+
+        // Remove level indicators [INFO], [DEBUG], [WARNING], [ERROR], [CRITICAL]
+        // Also handle versions without brackets
+        message = message.replace(/^(\[\s*(INFO|DEBUG|WARNING|ERROR|CRITICAL)\s*\]|(INFO|DEBUG|WARNING|ERROR|CRITICAL))\s*/, '');
+
+        // Remove "deribit_webhook:" or "deribit_webhook "
+        message = message.replace(/^deribit_webhook:\s*/, '');
+        message = message.replace(/^deribit_webhook\s+/, '');
+
+        // Trim any remaining whitespace
+        return message.trim();
     }
     
     showLogDetail(entry) {
@@ -298,7 +320,7 @@ class LogsManager {
                 ` : ''}
                 <div class="detail-field">
                     <div class="detail-label">消息</div>
-                    <div class="detail-value">${this.escapeHtml(entry.message)}</div>
+                    <div class="detail-value">${this.escapeHtml(this.cleanMessage(entry.message))}</div>
                 </div>
                 ${entry.extra_data && Object.keys(entry.extra_data).length > 0 ? `
                 <div class="detail-field">
@@ -308,7 +330,7 @@ class LogsManager {
                 ` : ''}
             </div>
         `;
-        
+
         this.logDetailContent.innerHTML = detailHtml;
         this.logModal.style.display = 'flex';
     }
@@ -390,10 +412,10 @@ class LogsManager {
                 `"${entry.module || ''}"`,
                 `"${entry.function || ''}"`,
                 `"${entry.line || ''}"`,
-                `"${entry.message.replace(/"/g, '""')}"`
+                `"${this.cleanMessage(entry.message).replace(/"/g, '""')}"`
             ].join(','))
         ].join('\n');
-        
+
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
