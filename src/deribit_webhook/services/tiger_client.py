@@ -114,7 +114,7 @@ class TigerClient:
             if math.isfinite(float_val):
                 return float_val
             else:
-                self.logger.warning(f"Invalid float value detected: {float_val}, converting to None")
+                # self.logger.warning(f"Invalid float value detected: {float_val}, converting to None")
                 return None
         except (ValueError, TypeError):
             self.logger.warning(f"Failed to convert value to float: {value}, converting to None")
@@ -1142,22 +1142,22 @@ class TigerClient:
             underlying_price = None
 
             # 方法1: 使用get_stock_briefs (实时行情，需要权限)
-            try:
-                brief = self.quote_client.get_stock_briefs([underlying_symbol])
-                if brief is not None and len(brief) > 0:
-                    latest_price = brief.iloc[0].get('latest_price')
-                    if latest_price is not None:
-                        underlying_price = float(latest_price)
-                        # 存储到缓存
-                        self._underlying_price_cache[cache_key] = {
-                            'price': underlying_price,
-                            'timestamp': current_time,
-                            'method': 'get_stock_briefs'
-                        }
-                        self.logger.debug(f"通过get_stock_briefs获取到标的价格: {underlying_symbol} = ${underlying_price:.2f}")
-                        return underlying_price
-            except Exception as e:
-                self.logger.warning(f"get_stock_briefs失败: {e}")
+            # try:
+            #     brief = self.quote_client.get_stock_briefs([underlying_symbol])
+            #     if brief is not None and len(brief) > 0:
+            #         latest_price = brief.iloc[0].get('latest_price')
+            #         if latest_price is not None:
+            #             underlying_price = float(latest_price)
+            #             # 存储到缓存
+            #             self._underlying_price_cache[cache_key] = {
+            #                 'price': underlying_price,
+            #                 'timestamp': current_time,
+            #                 'method': 'get_stock_briefs'
+            #             }
+            #             self.logger.debug(f"通过get_stock_briefs获取到标的价格: {underlying_symbol} = ${underlying_price:.2f}")
+            #             return underlying_price
+            # except Exception as e:
+            #     self.logger.warning(f"get_stock_briefs失败: {e}")
 
             # 方法2: 使用get_stock_delay_briefs (延迟行情，免费)
             try:
