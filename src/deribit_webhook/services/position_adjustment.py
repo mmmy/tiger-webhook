@@ -183,7 +183,7 @@ async def execute_position_adjustment_by_tv_id(
         if failure_count > 0:
             failures = [r for r in adjustment_results if not r.success]
             failure_details = "; ".join([
-                f"{f.reason}: {f.error or f.message or 'Unknown error'}" if f.reason
+                f"{f.reason}: {str(f.error) if f.error else (f.message or 'Unknown error')}" if f.reason
                 else f.message or 'Unknown error'
                 for f in failures
             ])
@@ -325,7 +325,7 @@ async def execute_position_adjustment(
         )
 
         if not close_result.get("success"):
-            raise Exception(f"Failed to close position: {close_result.error or 'Unknown error'}")
+            raise Exception(f"Failed to close position: {close_result.get('error') or 'Unknown error'}")
 
         logger.info(f"✅ [{request_id}] Current position closed successfully using progressive strategy")
 
