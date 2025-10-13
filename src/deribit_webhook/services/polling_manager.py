@@ -731,7 +731,7 @@ class PollingManager:
             close_result = await execute_position_close(
                 request_id=request_id,
                 account_name=account_name,
-                current_position=position_obj,
+                current_position=position_data,
                 delta_record=None,
                 close_ratio=1.0,
                 is_market_order=False,
@@ -835,4 +835,3 @@ class PollingManager:
 
 # Global instance
 polling_manager = PollingManager()
-
