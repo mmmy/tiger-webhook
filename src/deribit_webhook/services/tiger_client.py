@@ -7,6 +7,7 @@ Tiger Brokers API客户端
 import os
 import math
 import time
+import asyncio
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
@@ -60,6 +61,10 @@ class TigerClient:
         # 标的价格缓存：避免短时间内重复API调用
         self._underlying_price_cache: Dict[str, Dict[str, Any]] = {}
         self._underlying_price_cache_ttl_sec: int = 60  # 1分钟有效期
+
+        # 美股品种缓存：每24小时更新一次
+        self._us_symbols_cache: Dict[str, Dict[str, Any]] = {}
+        self._us_symbols_cache_ttl_sec: int = 24 * 3600  # 24小时有效期
 
 
     # --- helpers ------------------------------------------------------------
@@ -2054,3 +2059,703 @@ class TigerClient:
     
     async def get_option_details(self, option_name: str) :
         return await self.get_ticker(option_name)
+
+    async def get_us_symbols_cache(self, account_name: Optional[str] = None, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """获取美股品种缓存，每24小时更新一次
+        
+        Args:
+            account_name: 账户名称，可选
+            force_refresh: 是否强制刷新缓存
+            
+        Returns:
+            美股品种列表
+        """
+        try:
+            used_account = await self.ensure_quote_client(account_name)
+            cache_key = f"{used_account}:US_SYMBOLS"
+            current_time = datetime.now().timestamp()
+            
+            # 检查缓存是否存在且未过期
+            if not force_refresh and cache_key in self._us_symbols_cache:
+                cache_entry = self._us_symbols_cache[cache_key]
+                cache_time = cache_entry.get('timestamp', 0)
+                cached_symbols = cache_entry.get('symbols', [])
+                
+                # 检查缓存是否在有效期内（24小时）
+                if current_time - cache_time < self._us_symbols_cache_ttl_sec:
+                    self.logger.info("✅ 命中美股品种缓存", 
+                                   account=used_account,
+                                   symbol_count=len(cached_symbols),
+                                   cache_age_hours=(current_time - cache_time) / 3600)
+                    return cached_symbols
+            
+            # 缓存过期或强制刷新，重新获取数据
+            self.logger.info("🔄 获取美股品种数据", account=used_account, force_refresh=force_refresh)
+            
+            # 使用 QuoteClient.get_symbols 获取美股品种
+            symbols_data = self.quote_client.get_symbols(market=Market.ALL, include_otc=False)
+            
+            if symbols_data is None or len(symbols_data) == 0:
+                self.logger.warning("⚠️ 未获取到美股品种数据")
+                return []
+            
+            # 转换为标准格式
+            symbols_list = []
+            
+            # 检查返回的数据类型
+            if hasattr(symbols_data, 'iterrows'):
+                # DataFrame 类型
+                for _, row in symbols_data.iterrows():
+                    symbol_info = self._extract_symbol_info(row)
+                    if symbol_info:
+                        symbols_list.append(symbol_info)
+            elif isinstance(symbols_data, list):
+                # 列表类型
+                for item in symbols_data:
+                    symbol_info = self._extract_symbol_info(item)
+                    if symbol_info:
+                        symbols_list.append(symbol_info)
+            else:
+                self.logger.warning("⚠️ 未知的数据格式", data_type=type(symbols_data))
+                return []
+            
+            # 按符号排序
+            symbols_list.sort(key=lambda x: x['symbol'])
+            
+            # 更新缓存
+            self._us_symbols_cache[cache_key] = {
+                'timestamp': current_time,
+                'symbols': symbols_list,
+                'account': used_account
+            }
+            
+            self.logger.info("✅ 美股品种缓存更新成功", 
+                           account=used_account,
+                           symbol_count=len(symbols_list),
+                           cache_ttl_hours=self._us_symbols_cache_ttl_sec / 3600)
+            
+            return symbols_list
+            
+        except Exception as error:
+            self.logger.error("❌ 获取美股品种缓存失败", 
+                            account=account_name,
+                            error=str(error))
+            # 返回空列表而不是抛出异常，保持系统稳定性
+            return []
+
+    def invalidate_us_symbols_cache(self, account_name: Optional[str] = None) -> None:
+        """清理美股品种缓存
+        
+        Args:
+            account_name: 账户名称，如果为None则清理所有账户的缓存
+        """
+        if account_name:
+            cache_key = f"{account_name}:US_SYMBOLS"
+            self._us_symbols_cache.pop(cache_key, None)
+            self.logger.info("🗑️ 已清理账户美股品种缓存", account=account_name)
+        else:
+            self._us_symbols_cache.clear()
+            self.logger.info("🗑️ 已清理所有美股品种缓存")
+
+    def get_us_symbols_cache_info(self, account_name: Optional[str] = None) -> Dict[str, Any]:
+        """获取美股品种缓存信息
+        
+        Args:
+            account_name: 账户名称，如果为None则返回所有账户的缓存信息
+            
+        Returns:
+            缓存信息字典
+        """
+        current_time = datetime.now().timestamp()
+        
+        if account_name:
+            cache_key = f"{account_name}:US_SYMBOLS"
+            if cache_key in self._us_symbols_cache:
+                cache_entry = self._us_symbols_cache[cache_key]
+                cache_time = cache_entry.get('timestamp', 0)
+                symbols = cache_entry.get('symbols', [])
+                
+                return {
+                    'account': account_name,
+                    'symbol_count': len(symbols),
+                    'cache_timestamp': cache_time,
+                    'cache_age_seconds': current_time - cache_time,
+                    'cache_age_hours': (current_time - cache_time) / 3600,
+                    'is_valid': (current_time - cache_time) < self._us_symbols_cache_ttl_sec,
+                    'ttl_hours': self._us_symbols_cache_ttl_sec / 3600
+                }
+            else:
+                return {
+                    'account': account_name,
+                    'symbol_count': 0,
+                    'cache_timestamp': None,
+                    'cache_age_seconds': None,
+                    'cache_age_hours': None,
+                    'is_valid': False,
+                    'ttl_hours': self._us_symbols_cache_ttl_sec / 3600
+                }
+        else:
+            # 返回所有账户的缓存信息
+            cache_info = {}
+            for cache_key, cache_entry in self._us_symbols_cache.items():
+                if ':US_SYMBOLS' in cache_key:
+                    account = cache_key.replace(':US_SYMBOLS', '')
+                    cache_time = cache_entry.get('timestamp', 0)
+                    symbols = cache_entry.get('symbols', [])
+                    
+                    cache_info[account] = {
+                        'symbol_count': len(symbols),
+                        'cache_timestamp': cache_time,
+                        'cache_age_seconds': current_time - cache_time,
+                        'cache_age_hours': (current_time - cache_time) / 3600,
+                        'is_valid': (current_time - cache_time) < self._us_symbols_cache_ttl_sec,
+                        'ttl_hours': self._us_symbols_cache_ttl_sec / 3600
+                    }
+            
+            return cache_info
+
+    def _extract_symbol_info(self, data: Any) -> Optional[Dict[str, Any]]:
+        """从数据项中提取品种信息
+        
+        Args:
+            data: 数据项，可能是字典、对象或其他格式
+            
+        Returns:
+            品种信息字典，如果提取失败则返回None
+        """
+        try:
+            # 提取符号
+            symbol = None
+            if isinstance(data, dict):
+                symbol = (data.get('symbol') or data.get('code') or '').strip()
+            elif hasattr(data, 'symbol'):
+                symbol = getattr(data, 'symbol', '').strip()
+            elif hasattr(data, 'code'):
+                symbol = getattr(data, 'code', '').strip()
+            
+            if not symbol:
+                return None
+            
+            # 提取其他字段
+            name = None
+            market = 'US'
+            currency = 'USD'
+            sector = ''
+            industry = ''
+            market_cap = None
+            price = None
+            volume = None
+            
+            if isinstance(data, dict):
+                name = data.get('name') or data.get('description') or symbol.upper()
+                market = str(data.get('market', 'US')).upper()
+                currency = data.get('currency') or 'USD'
+                sector = data.get('sector') or ''
+                industry = data.get('industry') or ''
+                market_cap = data.get('market_cap')
+                price = data.get('latest_price') or data.get('close')
+                volume = data.get('volume')
+            else:
+                # 尝试从对象属性获取
+                name = getattr(data, 'name', None) or getattr(data, 'description', None) or symbol.upper()
+                market = str(getattr(data, 'market', 'US')).upper()
+                currency = getattr(data, 'currency', None) or 'USD'
+                sector = getattr(data, 'sector', None) or ''
+                industry = getattr(data, 'industry', None) or ''
+                market_cap = getattr(data, 'market_cap', None)
+                price = getattr(data, 'latest_price', None) or getattr(data, 'close', None)
+                volume = getattr(data, 'volume', None)
+            
+            symbol_info = {
+                "symbol": symbol.upper(),
+                "name": name,
+                "market": market,
+                "currency": currency,
+                "sector": sector,
+                "industry": industry,
+                "market_cap": self._safe_float(market_cap),
+                "price": self._safe_float(price),
+                "volume": self._safe_float(volume),
+                "is_otc": False  # 明确标记为非OTC股票
+            }
+            
+            return symbol_info
+            
+        except Exception as error:
+            self.logger.warning("提取品种信息失败", data=str(data), error=str(error))
+            return None
+
+    def is_us_stock_symbol(self, symbol: str) -> bool:
+        """判断symbol是否是美股品种
+        
+        Args:
+            symbol: 股票代码，如 "AAPL", "GOOGL", "MSFT" 等
+            
+        Returns:
+            bool: 如果是美股品种返回True，否则返回False
+            
+        Examples:
+            >>> client = TigerClient()
+            >>> client.is_us_stock_symbol("AAPL")
+            True
+            >>> client.is_us_stock_symbol("00700.HK")
+            False
+            >>> client.is_us_stock_symbol("BTC")
+            False
+        """
+        try:
+            if not symbol or not isinstance(symbol, str):
+                return False
+            
+            symbol = symbol.strip().upper()
+            
+            # 1. 检查是否包含美股后缀标识
+            # 有些系统可能使用 .US, .NYSE, .NASDAQ 等后缀
+            if any(symbol.endswith(suffix) for suffix in ['.US', '.NYSE', '.NASDAQ', '.AMEX']):
+                return True
+            
+            # 2. 检查是否包含港股后缀
+            if any(symbol.endswith(suffix) for suffix in ['.HK', '.HS', '.HKG']):
+                return False
+            
+            # 3. 检查是否包含A股后缀
+            if any(symbol.endswith(suffix) for suffix in ['.SS', '.SZ', '.SH']):
+                return False
+            
+            # 4. 检查是否包含其他市场后缀
+            if any(symbol.endswith(suffix) for suffix in ['.L', '.T', '.DE', '.PA', '.TO']):
+                return False
+            
+            # 5. 检查加密货币标识
+            if symbol.startswith(('BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE')):
+                return False
+            
+            # 6. 检查是否为数字开头的港股代码（如 00700, 00941）
+            if len(symbol) >= 4 and symbol[:4].isdigit():
+                return False
+            
+            # 7. 检查美股股票代码格式
+            # 美股代码通常为2-5个字母，不包含数字
+            import re
+            if re.match(r'^[A-Z]{2,5}$', symbol):
+                # 进一步排除一些明显的非美股代码
+                excluded_patterns = [
+                    r'^[A-Z]\d+',  # 字母+数字组合
+                    r'^\d+[A-Z]+',  # 数字+字母组合
+                    r'USD[A-Z]+',   # USD开头的货币对
+                    r'[A-Z]+USD$',  # USD结尾的货币对
+                ]
+                
+                for pattern in excluded_patterns:
+                    if re.match(pattern, symbol):
+                        return False
+                
+                # 排除已知的非美股代码
+                excluded_codes = {
+                    # 中概股ADR
+                    'TCEHY', 'BIDU', 'NIO', 'XPEV', 'LI', 'BILI', 'JD', 'PDD', 'BZ', 'WB', 'IQ', 'LU', 'YY', 'ZTO',
+                    # 日本股票ADR
+                    'TM', 'SONY', 'NTDOY', 'HMC', 'MZDAY', 'SNE', 'FUJHY', 'KYOCY', 'NMR', 'MFG',
+                    # 欧洲股票ADR
+                    'SAP', 'ASML', 'NESR', 'NOK', 'SI', 'ERIC', 'DB', 'VOW3', 'BAYRY', 'BMW', 'DAI',
+                    # 其他国际股票ADR
+                    'BHP', 'RIO', 'BP', 'SHEL', 'TOT', 'ENI', 'REP', 'SAN', 'CS', 'IBN', 'INFY',
+                    # 货币代码
+                    'USD', 'EUR', 'JPY', 'GBP', 'CNY', 'AUD', 'CAD', 'CHF', 'SEK', 'NOK', 'DKK',
+                    'SGD', 'HKD', 'KRW', 'INR', 'MXN', 'BRL', 'ZAR', 'RUB', 'TRY', 'PLN', 'CZK',
+                    'HUF', 'RON', 'BGN', 'HRK', 'ISK', 'EEK', 'LVL', 'LTL', 'MKD', 'ALL',
+                    # 商品
+                    'GOLD', 'SILVER', 'OIL', 'COPPER', 'GAS', 'WHEAT', 'CORN', 'SOYBEAN', 'SUGAR',
+                    'COFFEE', 'COTTON', 'COCOA', 'PLATINUM', 'PALLADIUM', 'RARE', 'LUMBER',
+                    # 指数
+                    'SPX', 'DJI', 'IXIC', 'RUT', 'VIX', 'FTSE', 'DAX', 'CAC', 'NIKKEI', 'SHANGHAI',
+                    'HANGSENG', 'SENSEX', 'BOVESPA', 'TSX', 'ASX', 'NZX', 'STI', 'KOSPI', 'TAIWAN'
+                }
+                
+                if symbol in excluded_codes:
+                    return False
+                
+                return True
+            
+            # 8. 特殊情况：检查一些知名的美股代码
+            known_us_stocks = {
+                'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'TSLA', 'META', 'NVDA', 'JPM', 
+                'JNJ', 'V', 'PG', 'UNH', 'HD', 'MA', 'BAC', 'XOM', 'CVX', 'LLY', 'PFE',
+                'ABBV', 'TMO', 'ABT', 'CRM', 'ACN', 'MRK', 'COST', 'NKE', 'KO', 'PEP',
+                'T', 'DIS', 'INTC', 'VZ', 'ADBE', 'NFLX', 'PYPL', 'CSCO', 'CMCSA', 'AVGO',
+                'TXN', 'QCOM', 'AMD', 'INTU', 'HON', 'IBM', 'GS', 'CAT', 'RTX', 'GE',
+                'BA', 'MMM', 'DOW', 'WMT', 'MCD', 'HD', 'LOW', 'TGT', 'COST', 'WBA'
+            }
+            
+            if symbol in known_us_stocks:
+                return True
+            
+            return False
+            
+        except Exception as error:
+            self.logger.warning("判断美股品种时发生错误", symbol=symbol, error=str(error))
+            return False
+
+    async def is_us_stock_symbol_with_cache(self, symbol: str) -> bool:
+        """使用缓存判断symbol是否是美股品种
+        
+        这个方法会先检查美股品种缓存，如果缓存中有该品种则返回True，
+        如果缓存中没有，则使用启发式方法判断，并可选择性地更新缓存。
+        
+        Args:
+            symbol: 股票代码
+            
+        Returns:
+            bool: 如果是美股品种返回True，否则返回False
+        """
+        try:
+            if not symbol or not isinstance(symbol, str):
+                return False
+            
+            symbol = symbol.strip().upper()
+            
+            # 1. 首先检查美股品种缓存
+            cache_info = self.get_us_symbols_cache_info()
+            
+            # 如果有缓存数据，检查symbol是否在缓存中
+            if cache_info and isinstance(cache_info, dict):
+                for account, info in cache_info.items():
+                    if info.get('is_valid', False):
+                        # 这里可以进一步优化，实际查询缓存中的品种列表
+                        # 但为了简单起见，先使用启发式方法
+                        break
+            
+            # 2. 使用启发式方法判断
+            is_us_stock = self.is_us_stock_symbol(symbol)
+            
+            # 3. 如果判断为美股品种，可以选择性地预热缓存
+            if is_us_stock:
+                # 异步预热缓存（不等待结果）
+                try:
+                    asyncio.create_task(self.get_us_symbols_cache())
+                except Exception:
+                    # 忽略缓存预热失败
+                    pass
+            
+            return is_us_stock
+            
+        except Exception as error:
+            self.logger.warning("使用缓存判断美股品种时发生错误", symbol=symbol, error=str(error))
+            # 降级到基础判断方法
+            return self.is_us_stock_symbol(symbol)
+
+    async def is_symbol_trading(self, symbol: str) -> bool:
+        """判断symbol是否正在实盘交易状态
+        
+        逻辑如下：
+        1. 用is_us_stock_symbol_with_cache判断是否是美股，否则就当作港股
+        2. 调用QuoteClient.get_market_status判断市场是否是交易中(trading_status)
+        
+        Args:
+            symbol: 股票代码，如 "AAPL", "00700.HK" 等
+            
+        Returns:
+            bool: 如果正在交易中返回True，否则返回False
+            
+        Examples:
+            >>> client = TigerClient()
+            >>> await client.is_symbol_trading("AAPL")
+            True  # 如果美股市场正在交易中
+            >>> await client.is_symbol_trading("00700.HK")
+            False  # 如果港股市场未交易或休市
+        """
+        try:
+            if not symbol or not isinstance(symbol, str):
+                return False
+            
+            symbol = symbol.strip().upper()
+            
+            # 1. 用is_us_stock_symbol_with_cache判断是否是美股
+            is_us_stock = await self.is_us_stock_symbol_with_cache(symbol)
+            
+            # 2. 获取市场状态
+            await self.ensure_quote_client()
+            
+            try:
+                # 获取市场状态 - 根据反馈，应该传入Market枚举而不是symbol
+                market_status = None
+                
+                # 判断市场类型并传入对应的Market枚举
+                if is_us_stock:
+                    # 美股市场
+                    try:
+                        market_status = self.quote_client.get_market_status(market=Market.US)
+                        self.logger.debug(f"获取美股市场状态成功")
+                    except Exception as e1:
+                        self.logger.debug(f"get_market_status(Market.US) 调用失败: {e1}")
+                        # 尝试不带参数调用
+                        try:
+                            market_status = self.quote_client.get_market_status()
+                            self.logger.debug(f"get_market_status() 无参数调用成功")
+                        except Exception as e2:
+                            self.logger.debug(f"get_market_status() 无参数调用也失败: {e2}")
+                else:
+                    # 港股市场
+                    try:
+                        market_status = self.quote_client.get_market_status(market=Market.HK)
+                        self.logger.debug(f"获取港股市场状态成功")
+                    except Exception as e1:
+                        self.logger.debug(f"get_market_status(Market.HK) 调用失败: {e1}")
+                        # 尝试不带参数调用
+                        try:
+                            market_status = self.quote_client.get_market_status()
+                            self.logger.debug(f"get_market_status() 无参数调用成功")
+                        except Exception as e2:
+                            self.logger.debug(f"get_market_status() 无参数调用也失败: {e2}")
+                
+                if market_status is None or len(market_status) == 0:
+                    self.logger.warning(f"未获取到市场状态信息: {symbol}")
+                    return False
+                
+                # 处理不同类型的返回数据
+                if hasattr(market_status, 'iloc'):
+                    # DataFrame类型
+                    if len(market_status) > 0:
+                        status_data = market_status.iloc[0]
+                    else:
+                        status_data = None
+                elif isinstance(market_status, list):
+                    # 列表类型
+                    if len(market_status) > 0:
+                        status_data = market_status[0]
+                    else:
+                        status_data = None
+                elif isinstance(market_status, dict):
+                    # 字典类型
+                    status_data = market_status
+                else:
+                    # 其他类型，尝试直接使用
+                    status_data = market_status
+                
+                if status_data is None:
+                    self.logger.warning(f"市场状态数据为空: {symbol}")
+                    return False
+                
+                # 检查交易状态字段
+                trading_status = None
+                
+                # 尝试不同的字段名
+                possible_fields = ['trading_status', 'status', 'market_status', 'is_trading']
+                for field in possible_fields:
+                    if hasattr(status_data, field):
+                        trading_status = getattr(status_data, field)
+                        break
+                    elif isinstance(status_data, dict) and field in status_data:
+                        trading_status = status_data[field]
+                        break
+                
+                if trading_status is None:
+                    # 尝试从字典中获取
+                    if isinstance(status_data, dict):
+                        for key, value in status_data.items():
+                            if 'trading' in key.lower() or 'status' in key.lower():
+                                trading_status = value
+                                break
+                
+                if trading_status is None:
+                    self.logger.warning(f"未找到交易状态字段: {symbol}")
+                    return False
+                
+                # 判断是否在交易中
+                if isinstance(trading_status, str):
+                    # 检查是否为交易状态
+                    trading_indicators = [
+                        'trading', 'open', 'active', 'normal', 'trading_halt', 
+                        'trading_resume', 'pre_open', 'post_market', 'continuous'
+                    ]
+                    status_lower = trading_status.lower().strip()
+                    
+                    # 检查是否包含交易相关关键词
+                    for indicator in trading_indicators:
+                        if indicator in status_lower:
+                            # 如果是停牌状态，需要进一步检查
+                            if 'halt' in status_lower:
+                                # 检查是否为交易恢复状态
+                                if 'resume' in status_lower:
+                                    return True
+                                continue
+                            return True
+                    
+                    # 特殊处理：如果明确表示非交易状态
+                    non_trading_indicators = [
+                        'closed', 'market_closed', 'halted', 'suspended', 
+                        'inactive', 'offline', 'unavailable', 'pre_market_closed',
+                        'post_market_closed', 'holiday', 'weekend'
+                    ]
+                    for indicator in non_trading_indicators:
+                        if indicator in status_lower:
+                            return False
+                    
+                    # 如果状态包含"market"且不是"market_closed"，认为在交易
+                    if 'market' in status_lower and 'closed' not in status_lower:
+                        return True
+                
+                elif isinstance(trading_status, bool):
+                    return trading_status
+                
+                elif isinstance(trading_status, (int, float)):
+                    # 如果是数值，通常1表示交易中，0表示休市
+                    return bool(trading_status)
+                
+                # 如果是其他类型，尝试转换为字符串再判断
+                try:
+                    status_str = str(trading_status).lower()
+                    return 'trading' in status_str or 'open' in status_str
+                except Exception:
+                    pass
+                
+                return False
+                
+            except Exception as e:
+                self.logger.error(f"获取市场状态时发生错误: {symbol}, {e}")
+                return False
+                
+        except Exception as error:
+            self.logger.error("判断symbol交易状态时发生错误", symbol=symbol, error=str(error))
+            return False
+
+    async def get_symbol_trading_status(self, symbol: str) -> Dict[str, Any]:
+        """获取symbol的详细交易状态信息
+        
+        Args:
+            symbol: 股票代码
+            
+        Returns:
+            包含交易状态信息的字典
+        """
+        try:
+            if not symbol or not isinstance(symbol, str):
+                return {"symbol": symbol, "is_trading": False, "error": "Invalid symbol"}
+            
+            symbol = symbol.strip().upper()
+            
+            # 判断是否为美股
+            is_us_stock = await self.is_us_stock_symbol_with_cache(symbol)
+            
+            # 获取市场状态
+            await self.ensure_quote_client()
+            
+            try:
+                # 获取市场状态 - 使用与基础方法相同的Market枚举策略
+                market_status = None
+                
+                # 判断市场类型并传入对应的Market枚举
+                if is_us_stock:
+                    # 美股市场
+                    try:
+                        market_status = self.quote_client.get_market_status(market=Market.US)
+                        self.logger.debug(f"获取美股市场状态成功 (详细状态)")
+                    except Exception as e1:
+                        self.logger.debug(f"get_market_status(Market.US) 调用失败: {e1}")
+                        # 尝试不带参数调用
+                        try:
+                            market_status = self.quote_client.get_market_status()
+                            self.logger.debug(f"get_market_status() 无参数调用成功 (详细状态)")
+                        except Exception as e2:
+                            self.logger.debug(f"get_market_status() 无参数调用也失败: {e2}")
+                else:
+                    # 港股市场
+                    try:
+                        market_status = self.quote_client.get_market_status(market=Market.HK)
+                        self.logger.debug(f"获取港股市场状态成功 (详细状态)")
+                    except Exception as e1:
+                        self.logger.debug(f"get_market_status(Market.HK) 调用失败: {e1}")
+                        # 尝试不带参数调用
+                        try:
+                            market_status = self.quote_client.get_market_status()
+                            self.logger.debug(f"get_market_status() 无参数调用成功 (详细状态)")
+                        except Exception as e2:
+                            self.logger.debug(f"get_market_status() 无参数调用也失败: {e2}")
+                
+                if market_status is None or len(market_status) == 0:
+                    return {
+                        "symbol": symbol,
+                        "is_trading": False,
+                        "is_us_stock": is_us_stock,
+                        "market": "US" if is_us_stock else "HK",
+                        "error": "No market status data available"
+                    }
+                
+                # 处理不同类型的返回数据
+                if hasattr(market_status, 'iloc'):
+                    # DataFrame类型
+                    if len(market_status) > 0:
+                        status_data = market_status.iloc[0]
+                    else:
+                        status_data = None
+                elif isinstance(market_status, list):
+                    # 列表类型
+                    if len(market_status) > 0:
+                        status_data = market_status[0]
+                    else:
+                        status_data = None
+                elif isinstance(market_status, dict):
+                    # 字典类型
+                    status_data = market_status
+                else:
+                    # 其他类型，尝试直接使用
+                    status_data = market_status
+                
+                if status_data is None:
+                    return {
+                        "symbol": symbol,
+                        "is_trading": False,
+                        "is_us_stock": is_us_stock,
+                        "market": "US" if is_us_stock else "HK",
+                        "error": "Empty market status data"
+                    }
+                
+                # 提取所有可能的状态信息
+                status_info = {}
+                if isinstance(status_data, dict):
+                    status_info = {k: v for k, v in status_data.items()}
+                else:
+                    # 如果是对象，转换为字典
+                    status_info = self._to_dict(status_data)
+                
+                # 判断交易状态
+                trading_status = status_info.get('trading_status') or status_info.get('status') or status_info.get('market_status')
+                is_trading = False
+                
+                if trading_status is not None:
+                    trading_status_str = str(trading_status).lower().strip()
+                    trading_indicators = ['trading', 'open', 'active', 'normal']
+                    is_trading = trading_status_str in trading_indicators
+                
+                return {
+                    "symbol": symbol,
+                    "is_trading": is_trading,
+                    "is_us_stock": is_us_stock,
+                    "market": "US" if is_us_stock else "HK",
+                    "trading_status": trading_status,
+                    "status_info": status_info,
+                    "error": None
+                }
+                
+            except Exception as e:
+                self.logger.error(f"获取symbol交易状态信息时发生错误: {symbol}, {e}")
+                return {
+                    "symbol": symbol,
+                    "is_trading": False,
+                    "is_us_stock": is_us_stock,
+                    "market": "US" if is_us_stock else "HK",
+                    "error": str(e)
+                }
+                
+        except Exception as error:
+            self.logger.error("获取symbol交易状态信息时发生错误", symbol=symbol, error=str(error))
+            return {
+                "symbol": symbol,
+                "is_trading": False,
+                "is_us_stock": False,
+                "error": str(error)
+            }
+
+# todo: 写一个函数判读symbol是否正在实盘交易状态, 逻辑如下:
+# 1. 用is_us_stock_symbol_with_cache判读是否是美股, 否则就是就当港股
+# 2. 调用QuoteClient.get_market_status判读市场是否是交易中(trading_status)

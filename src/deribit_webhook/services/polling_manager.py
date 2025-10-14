@@ -473,6 +473,15 @@ class PollingManager:
                     if latest_record is None:
                         continue;
                     
+                    instrument_name_stripped = instrument_name.strip()
+                    symbol_parts = instrument_name_stripped.split(maxsplit=1)
+                    symbol = symbol_parts[0] if symbol_parts else instrument_name_stripped
+                    position['symbol'] = symbol
+
+                    trading_status = await trading_client.get_symbol_trading_status(symbol)
+                    if not trading_status or not trading_status.get("is_trading"):
+                        continue
+                    
                     greeks = await trading_client._calc_option_greeks_by_instrument(instrument_name)
                     if greeks is None or greeks.get('delta') is None:
                         print(f"?? {account_name}: 无法获取希腊值 - {instrument_name}")
