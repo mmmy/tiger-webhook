@@ -92,7 +92,9 @@ async def execute_progressive_limit_strategy(
         order_status = await tiger_client.get_order_state(params.account_name, params.order_id)
         if not order_status or order_status.get("order_state") != "open":
             break
-
+        
+        filled_amount = order_status.get('filled_amount')
+        
         option_details = await tiger_client.get_ticker(params.instrument_name)
         if not option_details:
             continue
@@ -113,19 +115,25 @@ async def execute_progressive_limit_strategy(
         new_price = round_to_tick_size(new_price, params.tick_size)
         amount = float(order_status.get("amount") or params.quantity)
 
+        progress = f"{step}/{params.max_steps}"
+
         # Log progressive price adjustment details
-        logger.info("📈 Progressive limit price adjustment",
-                   order_id=params.order_id,
-                   instrument_name=params.instrument_name,
-                   direction=params.direction,
-                   step=step,
-                   max_steps=params.max_steps,
-                   initial_price=params.initial_price,
-                   new_price=new_price,
-                   amount=amount,
-                   best_bid=best_bid,
-                   best_ask=best_ask,
-                   tick_size=params.tick_size)
+        logger.info(
+            f"📈 Progressive limit price adjustment (progress {progress}, filled_amount={filled_amount})",
+            order_id=params.order_id,
+            instrument_name=params.instrument_name,
+            direction=params.direction,
+            step=step,
+            max_steps=params.max_steps,
+            initial_price=params.initial_price,
+            new_price=new_price,
+            amount=amount,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            tick_size=params.tick_size,
+            progress=progress,
+            filled_amount=filled_amount,
+        )
 
         edit_result = await tiger_client.edit_order(
             params.account_name,
