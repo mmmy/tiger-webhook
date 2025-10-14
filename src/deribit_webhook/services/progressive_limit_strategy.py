@@ -92,8 +92,8 @@ async def execute_progressive_limit_strategy(
         order_status = await tiger_client.get_order_state(params.account_name, params.order_id)
         if not order_status or order_status.get("order_state") != "open":
             break
-        
-        filled_amount = order_status.get('filled_amount')
+
+        filled_amount = float(order_status.get('filled_amount'))
         
         option_details = await tiger_client.get_ticker(params.instrument_name)
         if not option_details:
@@ -113,7 +113,7 @@ async def execute_progressive_limit_strategy(
             params.max_steps,
         )
         new_price = round_to_tick_size(new_price, params.tick_size)
-        amount = float(order_status.get("amount") or params.quantity)
+        amount = float(order_status.get("amount") or params.quantity) - filled_amount
 
         progress = f"{step}/{params.max_steps}"
 
