@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, Literal, Optional
 
 from .tiger_client import TigerClient
 from ..utils.price_utils import round_to_tick_size
 from ..utils.logging_config import get_global_logger
+from .wechat_notification import wechat_notification_service
 
 logger = get_global_logger()
 
@@ -94,6 +96,37 @@ async def execute_progressive_limit_strategy(
             break
 
         filled_amount = float(order_status.get('filled_amount'))
+
+        # 如果step不是最后一步, 且filled_amount > 0, 发送一个醒目的消息到企业微信, 方便调试
+        if step < params.max_steps and filled_amount > 0:
+            logger.warning(
+                f"🔍 Partial fill detected - Step {step}/{params.max_steps}",
+                order_id=params.order_id,
+                instrument_name=params.instrument_name,
+                filled_amount=filled_amount,
+                step=step,
+                max_steps=params.max_steps
+            )
+
+            # 发送企业微信通知
+            await wechat_notification_service.send_custom_markdown(
+                account_name=params.account_name,
+                content=f"""⚠️ **分段限价单部分成交提醒**
+
+📊 **订单信息**
+- 订单ID: {params.order_id}
+- 合约: {params.instrument_name}
+- 方向: {'买入' if params.direction == 'buy' else '卖出'}
+- 步骤: {step}/{params.max_steps}
+
+💰 **成交情况**
+- 已成交数量: {filled_amount:.4f}
+- 剩余数量: {float(order_status.get('amount') or params.quantity) - filled_amount:.4f}
+
+⏰ **时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+请关注此订单的后续执行情况。"""
+            )
         
         option_details = await tiger_client.get_ticker(params.instrument_name)
         if not option_details:
