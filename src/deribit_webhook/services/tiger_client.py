@@ -62,6 +62,10 @@ class TigerClient:
         self._underlying_price_cache: Dict[str, Dict[str, Any]] = {}
         self._underlying_price_cache_ttl_sec: int = 60  # 1分钟有效期
 
+        # Market status cache (5 min TTL)
+        self._market_status_cache: Dict[str, Dict[str, Any]] = {}
+        self._market_status_cache_ttl_sec: int = 300
+
         # 美股品种缓存：每24小时更新一次
         self._us_symbols_cache: Dict[str, Dict[str, Any]] = {}
         self._us_symbols_cache_ttl_sec: int = 24 * 3600  # 24小时有效期
@@ -169,6 +173,25 @@ class TigerClient:
             return str(data)
         except Exception:
             return None
+
+    def _get_cached_market_status(self, cache_key: str) -> Optional[Any]:
+        """Return cached market status if available and fresh."""
+        entry = self._market_status_cache.get(cache_key)
+        if not entry:
+            return None
+
+        timestamp = entry.get("timestamp", 0)
+        if (time.time() - timestamp) > self._market_status_cache_ttl_sec:
+            return None
+
+        return entry.get("data")
+
+    def _set_cached_market_status(self, cache_key: str, data: Any) -> None:
+        """Store market status result in cache."""
+        self._market_status_cache[cache_key] = {
+            "timestamp": time.time(),
+            "data": data
+        }
 
     async def close(self):
         """关闭所有客户端连接"""
@@ -2083,14 +2106,14 @@ class TigerClient:
                 
                 # 检查缓存是否在有效期内（24小时）
                 if current_time - cache_time < self._us_symbols_cache_ttl_sec:
-                    self.logger.info("✅ 命中美股品种缓存", 
-                                   account=used_account,
-                                   symbol_count=len(cached_symbols),
-                                   cache_age_hours=(current_time - cache_time) / 3600)
+                    # self.logger.info("✅ 命中美股品种缓存", 
+                    #                account=used_account,
+                    #                symbol_count=len(cached_symbols),
+                    #                cache_age_hours=(current_time - cache_time) / 3600)
                     return cached_symbols
             
             # 缓存过期或强制刷新，重新获取数据
-            self.logger.info("🔄 获取美股品种数据", account=used_account, force_refresh=force_refresh)
+            # self.logger.info("🔄 获取美股品种数据", account=used_account, force_refresh=force_refresh)
             
             # 使用 QuoteClient.get_symbols 获取美股品种
             symbols_data = self.quote_client.get_symbols(market=Market.ALL, include_otc=False)
@@ -2129,10 +2152,10 @@ class TigerClient:
                 'account': used_account
             }
             
-            self.logger.info("✅ 美股品种缓存更新成功", 
-                           account=used_account,
-                           symbol_count=len(symbols_list),
-                           cache_ttl_hours=self._us_symbols_cache_ttl_sec / 3600)
+            # self.logger.info("✅ 美股品种缓存更新成功", 
+            #                account=used_account,
+            #                symbol_count=len(symbols_list),
+            #                cache_ttl_hours=self._us_symbols_cache_ttl_sec / 3600)
             
             return symbols_list
             
@@ -2644,33 +2667,36 @@ class TigerClient:
                 # 获取市场状态 - 使用与基础方法相同的Market枚举策略
                 market_status = None
                 
-                # 判断市场类型并传入对应的Market枚举
-                if is_us_stock:
-                    # 美股市场
+                primary_market = Market.US if is_us_stock else Market.HK
+                cache_key = f"MARKET:{'US' if is_us_stock else 'HK'}"
+                fallback_cache_key = "MARKET:DEFAULT"
+
+                market_status = self._get_cached_market_status(cache_key)
+
+                if market_status is None:
                     try:
-                        market_status = self.quote_client.get_market_status(market=Market.US)
-                        self.logger.debug(f"获取美股市场状态成功 (详细状态)")
+                        market_status = self.quote_client.get_market_status(market=primary_market)
+                        if market_status is not None:
+                            self._set_cached_market_status(cache_key, market_status)
                     except Exception as e1:
-                        self.logger.debug(f"get_market_status(Market.US) 调用失败: {e1}")
-                        # 尝试不带参数调用
-                        try:
-                            market_status = self.quote_client.get_market_status()
-                            self.logger.debug(f"get_market_status() 无参数调用成功 (详细状态)")
-                        except Exception as e2:
-                            self.logger.debug(f"get_market_status() 无参数调用也失败: {e2}")
-                else:
-                    # 港股市场
+                        if is_us_stock:
+                            self.logger.debug(f"get_market_status(Market.US) 调用失败: {e1}")
+                        else:
+                            self.logger.debug(f"get_market_status(Market.HK) 调用失败: {e1}")
+                        market_status = None
+
+                if market_status is None:
+                    market_status = self._get_cached_market_status(fallback_cache_key)
+
+                if market_status is None:
                     try:
-                        market_status = self.quote_client.get_market_status(market=Market.HK)
-                        self.logger.debug(f"获取港股市场状态成功 (详细状态)")
-                    except Exception as e1:
-                        self.logger.debug(f"get_market_status(Market.HK) 调用失败: {e1}")
-                        # 尝试不带参数调用
-                        try:
-                            market_status = self.quote_client.get_market_status()
-                            self.logger.debug(f"get_market_status() 无参数调用成功 (详细状态)")
-                        except Exception as e2:
-                            self.logger.debug(f"get_market_status() 无参数调用也失败: {e2}")
+                        market_status = self.quote_client.get_market_status()
+                        if market_status is not None:
+                            self._set_cached_market_status(fallback_cache_key, market_status)
+                            self.logger.debug("get_market_status() 无参数调用成功 (详细状态)")
+                    except Exception as e2:
+                        self.logger.debug(f"get_market_status() 无参数调用也失败: {e2}")
+                        market_status = None
                 
                 if market_status is None or len(market_status) == 0:
                     return {

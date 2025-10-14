@@ -437,7 +437,14 @@ class OptionTradingService:
             else:
                 # Put option: open_short = buy, open_long = sell
                 actual_direction = "buy" if params.action == "open_short" else "sell"
-
+            if actual_direction == "sell":
+                message = "Option selling is not supported for delta-based opening trades"
+                logger.error(f"? {message} (action={params.action})")
+                return OptionTradingResult(
+                    success=False,
+                    message=message,
+                    error="OPTION_SELLING_UNSUPPORTED"
+                )
             print(f"🎯 Option selection: delta1={delta1} → {'call' if is_call else 'put'} option, "
                   f"action={params.action} → {actual_direction}")
 
