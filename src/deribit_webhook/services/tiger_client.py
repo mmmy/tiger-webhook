@@ -7,7 +7,9 @@ Tiger Brokers API客户端
 import os
 import math
 import time
+import re
 import asyncio
+from enum import Enum
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
@@ -2069,16 +2071,45 @@ class TigerClient:
             print(f"❌ Failed to convert position: {error}")
             return None
 
-    def _convert_tiger_order_status(self, tiger_status: str) -> str:
-        """转换Tiger订单状态为Deribit格式"""
+    def _convert_tiger_order_status(self, tiger_status: Any) -> str:
+        """转换Tiger订单状态为Deribit格式，兼容Tiger枚举与字符串值。"""
+        if tiger_status is None:
+            self.logger.warning("Received empty Tiger order status")
+            return "unknown"
+
+        raw_status = tiger_status.name if isinstance(tiger_status, Enum) else str(tiger_status)
+        normalized = raw_status.replace("-", "_").replace(" ", "_")
+        normalized = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", normalized)
+        normalized = normalized.upper()
+
         status_mapping = {
+            "PENDING_NEW": "open",
             "NEW": "open",
+            "INITIAL": "open",
+            "HELD": "open",
+            "SUBMITTED": "open",
+            "PARTIALLY_FILLED": "open",
+            "PENDING_CANCEL": "open",
             "FILLED": "filled",
             "CANCELLED": "cancelled",
+            "CANCELED": "cancelled",
             "REJECTED": "rejected",
-            "PARTIALLY_FILLED": "open"
+            "INACTIVE": "rejected",
+            "EXPIRED": "cancelled",
+            "INVALID": "cancelled",
         }
-        return status_mapping.get(tiger_status, "open")
+
+        mapped_status = status_mapping.get(normalized)
+        if mapped_status is not None:
+            return mapped_status
+
+        alt_normalized = normalized.replace("_", "")
+        mapped_status = status_mapping.get(alt_normalized)
+        if mapped_status is not None:
+            return mapped_status
+
+        self.logger.warning("Unknown Tiger order status", status=raw_status, normalized_status=normalized)
+        return "unknown"
     
     async def get_option_details(self, option_name: str) :
         return await self.get_ticker(option_name)
