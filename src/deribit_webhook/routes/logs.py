@@ -7,7 +7,7 @@ Provides endpoints for querying, filtering, and managing application logs.
 import os
 import re
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -44,6 +44,13 @@ class LogQueryParams(BaseModel):
     offset: int = Field(0, description="Number of entries to skip")
 
 
+def _normalize_datetime(dt: datetime) -> datetime:
+    """Normalize datetimes to UTC naive for consistent comparisons."""
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def parse_relative_time(time_str: str) -> datetime:
     """Parse relative time strings like '1h ago', '30m ago', etc."""
     if time_str.lower() == 'now':
@@ -56,7 +63,8 @@ def parse_relative_time(time_str: str) -> datetime:
     if not match:
         # Try to parse as ISO format
         try:
-            return datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+            iso_time = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+            return _normalize_datetime(iso_time)
         except ValueError:
             raise ValueError(f"Invalid time format: {time_str}")
     
@@ -162,15 +170,16 @@ def read_log_file(file_path: str, params: LogQueryParams) -> List[LogEntry]:
         end_time = None
         
         if params.start_time:
-            start_time = parse_relative_time(params.start_time)
+            start_time = _normalize_datetime(parse_relative_time(params.start_time))
         if params.end_time:
-            end_time = parse_relative_time(params.end_time)
+            end_time = _normalize_datetime(parse_relative_time(params.end_time))
         
         for entry in entries:
             # Time filter
             if start_time or end_time:
                 try:
                     entry_time = datetime.fromisoformat(entry.timestamp.replace('Z', '+00:00'))
+                    entry_time = _normalize_datetime(entry_time)
                     if start_time and entry_time < start_time:
                         continue
                     if end_time and entry_time > end_time:
