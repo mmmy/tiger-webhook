@@ -22,6 +22,14 @@ from ..utils.response_utils import format_success_response, format_error_respons
 logs_router = APIRouter(prefix="/api/logs")
 
 LOCAL_TIMEZONE: tzinfo = datetime.now().astimezone().tzinfo or timezone.utc
+TEXT_LOG_PATTERNS = [
+    re.compile(
+        r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+\[\s*(\w+)\s*\]\s+\[([^\]]+)\]\s+(.+?)(?:\s+\(([^:]+):(\d+)\))?$'
+    ),
+    re.compile(
+        r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+\[\s*(\w+)\s*\]\s+([A-Za-z0-9_.-]+):\s+(.+?)(?:\s+\(([^:]+):(\d+)\))?$'
+    ),
+]
 
 class LogEntry(BaseModel):
     """Log entry model"""
@@ -87,25 +95,28 @@ def parse_relative_time(time_str: str) -> datetime:
 
 def parse_text_log_line(line: str) -> LogEntry:
     """Parse log lines that follow the text formatter syntax."""
-    pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+\[\s*(\w+)\s*\]\s+\[([^\]]+)\]\s+(.+?)(?:\s+\(([^:]+):(\d+)\))?$'
-    match = re.match(pattern, line)
+    for pattern in TEXT_LOG_PATTERNS:
+        match = pattern.match(line)
+        if match:
+            timestamp, level, logger, message, module, line_num = match.groups()
+            return LogEntry(
+                timestamp=timestamp,
+                level=level.strip(),
+                logger=logger.strip(),
+                message=message.strip(),
+                module=module.strip() if module else None,
+                line=int(line_num) if line_num else None
+            )
 
-    if match:
-        timestamp, level, logger, message, module, line_num = match.groups()
-        return LogEntry(
-            timestamp=timestamp,
-            level=level,
-            logger=logger,
-            message=message,
-            module=module,
-            line=int(line_num) if line_num else None
-        )
+    # Fallback: attempt to capture leading timestamp if available
+    timestamp_match = re.match(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)', line)
+    timestamp = timestamp_match.group(1) if timestamp_match else datetime.now().isoformat()
 
     return LogEntry(
-        timestamp=datetime.now().isoformat(),
+        timestamp=timestamp,
         level='INFO',
         logger='unknown',
-        message=line
+        message=line.strip()
     )
 
 
