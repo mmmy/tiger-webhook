@@ -7,7 +7,7 @@ Provides endpoints for querying, filtering, and managing application logs.
 import os
 import re
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -21,6 +21,7 @@ from ..utils.response_utils import format_success_response, format_error_respons
 # Router setup
 logs_router = APIRouter(prefix="/api/logs")
 
+LOCAL_TIMEZONE: tzinfo = datetime.now().astimezone().tzinfo or timezone.utc
 
 class LogEntry(BaseModel):
     """Log entry model"""
@@ -45,10 +46,10 @@ class LogQueryParams(BaseModel):
 
 
 def _normalize_datetime(dt: datetime) -> datetime:
-    """Normalize datetimes to UTC naive for consistent comparisons."""
+    """Normalize datetimes to local naive time for consistent comparisons."""
     if dt.tzinfo is None:
         return dt
-    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.astimezone(LOCAL_TIMEZONE).replace(tzinfo=None)
 
 
 def parse_relative_time(time_str: str) -> datetime:
@@ -184,8 +185,14 @@ def _filter_entries(entries: List[LogEntry], params: LogQueryParams) -> List[Log
 
         filtered_entries.append(entry)
 
-    # Sort by timestamp (newest first)
-    filtered_entries.sort(key=lambda x: x.timestamp, reverse=True)
+    def sort_key(entry: LogEntry) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(entry.timestamp.replace('Z', '+00:00'))
+            return _normalize_datetime(parsed)
+        except ValueError:
+            return datetime.min
+
+    filtered_entries.sort(key=sort_key, reverse=True)
 
     # Apply pagination
     start_idx = params.offset
