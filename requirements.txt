@@ -54,3 +54,6 @@ tigeropen>=2.0.0
 
 # Options analytics
 QuantLib==1.36
+
+# Scientific computing for option calculations
+scipy>=1.10.0
