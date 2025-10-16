@@ -145,70 +145,99 @@ def parse_log_line(line: str) -> Optional[LogEntry]:
 
 
 
-def read_log_file(file_path: str, params: LogQueryParams) -> List[LogEntry]:
-    """Read and filter log file"""
-    if not os.path.exists(file_path):
-        return []
-    
-    entries = []
-    
+def _filter_entries(entries: List[LogEntry], params: LogQueryParams) -> List[LogEntry]:
+    """Apply query filters, sorting, and pagination to log entries."""
+    filtered_entries: List[LogEntry] = []
+
+    start_time = None
+    end_time = None
+
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        # Parse all lines
-        for line in lines:
-            entry = parse_log_line(line)
-            if entry:
-                entries.append(entry)
-        
-        # Apply filters
-        filtered_entries = []
-        
-        # Parse time filters
-        start_time = None
-        end_time = None
-        
         if params.start_time:
             start_time = _normalize_datetime(parse_relative_time(params.start_time))
         if params.end_time:
             end_time = _normalize_datetime(parse_relative_time(params.end_time))
-        
-        for entry in entries:
-            # Time filter
-            if start_time or end_time:
-                try:
-                    entry_time = datetime.fromisoformat(entry.timestamp.replace('Z', '+00:00'))
-                    entry_time = _normalize_datetime(entry_time)
-                    if start_time and entry_time < start_time:
-                        continue
-                    if end_time and entry_time > end_time:
-                        continue
-                except ValueError:
-                    # If timestamp parsing fails, include the entry
-                    pass
-            
-            # Level filter
-            if params.level and entry.level.upper() != params.level.upper():
-                continue
-            
-            # Search filter
-            if params.search and params.search.lower() not in entry.message.lower():
-                continue
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-            filtered_entries.append(entry)
-        
-        # Sort by timestamp (newest first)
-        filtered_entries.sort(key=lambda x: x.timestamp, reverse=True)
-        
-        # Apply pagination
-        start_idx = params.offset
-        end_idx = start_idx + params.limit
-        
-        return filtered_entries[start_idx:end_idx]
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading log file: {str(e)}")
+    for entry in entries:
+        # Time filter
+        if start_time or end_time:
+            try:
+                entry_time = datetime.fromisoformat(entry.timestamp.replace('Z', '+00:00'))
+                entry_time = _normalize_datetime(entry_time)
+                if start_time and entry_time < start_time:
+                    continue
+                if end_time and entry_time > end_time:
+                    continue
+            except ValueError:
+                # If timestamp parsing fails, include the entry
+                pass
+
+        # Level filter
+        if params.level and entry.level.upper() != params.level.upper():
+            continue
+
+        # Search filter
+        if params.search and params.search.lower() not in entry.message.lower():
+            continue
+
+        filtered_entries.append(entry)
+
+    # Sort by timestamp (newest first)
+    filtered_entries.sort(key=lambda x: x.timestamp, reverse=True)
+
+    # Apply pagination
+    start_idx = params.offset
+    end_idx = start_idx + params.limit
+
+    return filtered_entries[start_idx:end_idx]
+
+
+def read_log_files(file_paths: List[str], params: LogQueryParams) -> List[LogEntry]:
+    """Read and filter multiple log files."""
+    aggregated_entries: List[LogEntry] = []
+
+    for file_path in file_paths:
+        if not os.path.exists(file_path):
+            continue
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    entry = parse_log_line(line)
+                    if entry:
+                        aggregated_entries.append(entry)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Error reading log file {file_path}: {str(exc)}") from exc
+
+    if not aggregated_entries:
+        return []
+
+    return _filter_entries(aggregated_entries, params)
+
+
+def read_log_file(file_path: str, params: LogQueryParams) -> List[LogEntry]:
+    """Backward compatible helper to read a single log file."""
+    return read_log_files([file_path], params)
+
+
+def get_log_files_for_query(primary_log_file: str) -> List[str]:
+    """Return all matching log files (primary + rotated) for the query."""
+    primary_path = Path(primary_log_file)
+    log_dir = primary_path.parent if primary_path.parent != Path("") else Path(".")
+
+    if not log_dir.exists():
+        return [str(primary_path)] if primary_path.exists() else []
+
+    pattern = f"{primary_path.name}*"
+    files = [path for path in log_dir.glob(pattern) if path.is_file()]
+
+    if primary_path.exists() and primary_path not in files:
+        files.append(primary_path)
+
+    files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return [str(path) for path in files]
 
 
 @logs_router.get("/query")
@@ -231,11 +260,12 @@ async def query_logs(
             offset=offset
         )
         
-        # Get log file path
+        # Get log file path(s)
         log_file = settings.log_file or "./logs/combined.log"
-        
+        log_files = get_log_files_for_query(log_file)
+
         # Read and filter logs
-        entries = read_log_file(log_file, params)
+        entries = read_log_files(log_files if log_files else [log_file], params)
         
         return format_success_response(
             message=f"Found {len(entries)} log entries",
@@ -243,7 +273,8 @@ async def query_logs(
                 "entries": [entry.dict() for entry in entries],
                 "total_returned": len(entries),
                 "query_params": params.dict(),
-                "log_file": log_file
+                "log_file": log_file,
+                "scanned_files": log_files
             }
         )
         
